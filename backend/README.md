@@ -220,3 +220,20 @@ obligatorios (`mandatory`, `publisher-returns`). `OutboxDispatchScheduler` lo la
 | `queuelab.outbox.dispatch.interval` | `1s` | pausa entre pasadas |
 | `queuelab.outbox.batch-size` | `50` | eventos por pasada |
 | `queuelab.outbox.confirm-timeout` | `5s` | espera máxima de la confirmación |
+
+## Worker: consumo de trabajos
+
+El worker (`backend/worker`) consume `queuelab.jobs.queued` con un `@RabbitListener` (`JobConsumer`):
+
+1. Decodifica y valida el mensaje con `JobMessageCodec` (el mismo contrato que la API).
+2. `JobProcessor` carga el trabajo de PostgreSQL por su id (la fuente de verdad) y se lo pasa a un
+   `JobExecutor`. Por ahora solo hay `NoopJobExecutor`, que registra el trabajo en el log; los
+   estados `RUNNING`/`COMPLETED`/`FAILED` llegan en la #18.
+3. Mensaje malformado (no es JSON, versión no soportada, `jobId` inválido) o trabajo inexistente →
+   `AmqpRejectAndDontRequeueException`: RabbitMQ lo desvía a `queuelab.jobs.queued.dlq` y los demás
+   mensajes siguen su curso.
+4. `default-requeue-rejected: false`: si la ejecución lanza una excepción, el mensaje también va a la
+   DLQ en lugar de reencolarse en bucle.
+
+El worker solo **lee** de PostgreSQL con el esquema que migra la API (no incluye Flyway; los tests lo
+crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.
