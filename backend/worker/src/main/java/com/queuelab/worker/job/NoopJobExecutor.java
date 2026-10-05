@@ -13,7 +13,8 @@ class NoopJobExecutor implements JobExecutor {
     private static final Logger log = LoggerFactory.getLogger(NoopJobExecutor.class);
 
     @Override
-    public void execute(Job job) {
+    public String execute(Job job) {
         log.info("Ejecutando trabajo {} de tipo '{}'", job.id(), job.type());
+        return "Trabajo de tipo '" + job.type() + "' completado";
     }
 }

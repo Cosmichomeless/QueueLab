@@ -79,7 +79,8 @@ public class JobRepository {
         return jdbc.sql("""
                 UPDATE jobs
                    SET status = :status, updated_at = :updatedAt,
-                       started_at = :startedAt, finished_at = :finishedAt
+                       started_at = :startedAt, finished_at = :finishedAt,
+                       result = :result, error = :error
                  WHERE id = :id AND status = :expectedStatus
                 """)
                 .param("id", job.id())
@@ -87,6 +88,8 @@ public class JobRepository {
                 .param("updatedAt", utc(job.updatedAt()))
                 .param("startedAt", utc(job.startedAt()))
                 .param("finishedAt", utc(job.finishedAt()))
+                .param("result", job.result())
+                .param("error", job.error())
                 .param("expectedStatus", expectedStatus.name())
                 .update() == 1;
     }
@@ -99,7 +102,9 @@ public class JobRepository {
                 rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
                 instant(rs.getObject("started_at", OffsetDateTime.class)),
-                instant(rs.getObject("finished_at", OffsetDateTime.class)));
+                instant(rs.getObject("finished_at", OffsetDateTime.class)),
+                rs.getString("result"),
+                rs.getString("error"));
     }
 
     private static java.time.Instant instant(OffsetDateTime value) {

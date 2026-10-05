@@ -89,4 +89,38 @@ class JobTest {
     void typeMustNotBeBlank() {
         assertThatThrownBy(() -> Job.queued(id, " ", T0)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void completedKeepsTheResultAndFinishes() {
+        Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
+        Job running = Job.queued(UUID.randomUUID(), "noop", t0).transitionTo(JobStatus.RUNNING, t0.plusSeconds(1));
+
+        Job done = running.completed("ok", t0.plusSeconds(2));
+
+        assertThat(done.status()).isEqualTo(JobStatus.COMPLETED);
+        assertThat(done.result()).isEqualTo("ok");
+        assertThat(done.error()).isNull();
+        assertThat(done.startedAt()).isEqualTo(t0.plusSeconds(1));
+        assertThat(done.finishedAt()).isEqualTo(t0.plusSeconds(2));
+    }
+
+    @Test
+    void failedKeepsTheErrorAndTruncatesIt() {
+        Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
+        Job running = Job.queued(UUID.randomUUID(), "noop", t0).transitionTo(JobStatus.RUNNING, t0.plusSeconds(1));
+
+        Job failed = running.failed("e".repeat(900), t0.plusSeconds(2));
+
+        assertThat(failed.status()).isEqualTo(JobStatus.FAILED);
+        assertThat(failed.error()).hasSize(Job.ERROR_MAX_LENGTH);
+        assertThat(failed.result()).isNull();
+    }
+
+    @Test
+    void cannotCompleteOrFailAJobThatIsNotRunning() {
+        Job queued = Job.queued(UUID.randomUUID(), "noop", Instant.parse("2026-01-01T00:00:00Z"));
+
+        assertThatThrownBy(() -> queued.completed("ok", Instant.now())).isInstanceOf(InvalidJobTransitionException.class);
+        assertThatThrownBy(() -> queued.failed("mal", Instant.now())).isInstanceOf(InvalidJobTransitionException.class);
+    }
 }

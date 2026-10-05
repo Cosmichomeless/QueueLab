@@ -226,14 +226,23 @@ obligatorios (`mandatory`, `publisher-returns`). `OutboxDispatchScheduler` lo la
 El worker (`backend/worker`) consume `queuelab.jobs.queued` con un `@RabbitListener` (`JobConsumer`):
 
 1. Decodifica y valida el mensaje con `JobMessageCodec` (el mismo contrato que la API).
-2. `JobProcessor` carga el trabajo de PostgreSQL por su id (la fuente de verdad) y se lo pasa a un
-   `JobExecutor`. Por ahora solo hay `NoopJobExecutor`, que registra el trabajo en el log; los
-   estados `RUNNING`/`COMPLETED`/`FAILED` llegan en la #18.
-3. Mensaje malformado (no es JSON, versión no soportada, `jobId` inválido) o trabajo inexistente →
+2. `JobProcessor` carga el trabajo de PostgreSQL por su id (la fuente de verdad). Si ya no está en
+   `QUEUED` (mensaje duplicado, entrega repetida) lo ignora y confirma el mensaje.
+3. Pasa a `RUNNING` con una actualización condicional (`UPDATE ... WHERE status = 'QUEUED'`), de modo que
+   dos workers no ejecutan el mismo trabajo, y fija `started_at`.
+4. Ejecuta el `JobExecutor` (por ahora `NoopJobExecutor`) y guarda el estado terminal:
+   - Éxito → `COMPLETED`, con `finished_at` y `result` (resumen de hasta 1000 caracteres).
+   - `JobExecutionException` (fallo esperado) → `FAILED`, con su mensaje como `error` (hasta 500).
+   - Cualquier otra excepción → `FAILED` con el texto genérico «Error inesperado durante la
+     ejecución»; el detalle (que podría incluir cadenas de conexión o datos internos) solo va al log.
+   El resultado queda persistido, así que el mensaje se confirma: no va a la DLQ ni se reentrega.
+5. Mensaje malformado (no es JSON, versión no soportada, `jobId` inválido) o trabajo inexistente →
    `AmqpRejectAndDontRequeueException`: RabbitMQ lo desvía a `queuelab.jobs.queued.dlq` y los demás
-   mensajes siguen su curso.
-4. `default-requeue-rejected: false`: si la ejecución lanza una excepción, el mensaje también va a la
-   DLQ en lugar de reencolarse en bucle.
+   mensajes siguen su curso. `default-requeue-rejected: false` evita reencolados en bucle.
+
+`GET /api/v1/jobs/{id}` ya refleja estos cambios porque la API lee de la misma tabla: `status`,
+`startedAt`, `finishedAt`, `result` y `error` (`null` mientras no apliquen). La migración `V6` añade las
+columnas `result` y `error`.
 
 El worker solo **lee** de PostgreSQL con el esquema que migra la API (no incluye Flyway; los tests lo
 crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.

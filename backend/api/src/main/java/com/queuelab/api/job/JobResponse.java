@@ -14,10 +14,12 @@ public record JobResponse(
         Instant createdAt,
         Instant updatedAt,
         Instant startedAt,
-        Instant finishedAt) {
+        Instant finishedAt,
+        String result,
+        String error) {
 
     public static JobResponse from(Job job) {
         return new JobResponse(job.id(), job.type(), job.status(), job.createdAt(), job.updatedAt(),
-                job.startedAt(), job.finishedAt());
+                job.startedAt(), job.finishedAt(), job.result(), job.error());
     }
 }

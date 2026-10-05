@@ -34,6 +34,39 @@ class GetJobTest {
     JobRepository jobs;
 
     @Test
+    void completedJobExposesItsResultAndNoError() throws Exception {
+        Instant t0 = Instant.parse("2026-01-01T10:00:00Z");
+        Job queued = Job.queued(UUID.randomUUID(), "csv-import", t0);
+        Job running = queued.transitionTo(JobStatus.RUNNING, t0.plusSeconds(1));
+        jobs.insert(queued);
+        jobs.update(running, JobStatus.QUEUED);
+        jobs.update(running.completed("42 filas importadas", t0.plusSeconds(2)), JobStatus.RUNNING);
+
+        mvc.perform(get("/api/v1/jobs/{id}", queued.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.result").value("42 filas importadas"))
+                .andExpect(jsonPath("$.error").doesNotExist())
+                .andExpect(jsonPath("$.finishedAt").value("2026-01-01T10:00:02Z"));
+    }
+
+    @Test
+    void failedJobExposesItsErrorAndNoResult() throws Exception {
+        Instant t0 = Instant.parse("2026-01-01T10:00:00Z");
+        Job queued = Job.queued(UUID.randomUUID(), "csv-import", t0);
+        Job running = queued.transitionTo(JobStatus.RUNNING, t0.plusSeconds(1));
+        jobs.insert(queued);
+        jobs.update(running, JobStatus.QUEUED);
+        jobs.update(running.failed("El fichero CSV está vacío", t0.plusSeconds(2)), JobStatus.RUNNING);
+
+        mvc.perform(get("/api/v1/jobs/{id}", queued.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.error").value("El fichero CSV está vacío"))
+                .andExpect(jsonPath("$.result").doesNotExist());
+    }
+
+    @Test
     void existingIdReturnsPublicRepresentation() throws Exception {
         Instant t0 = Instant.parse("2026-01-01T10:00:00Z");
         Job job = Job.queued(UUID.randomUUID(), "csv-import", t0)
