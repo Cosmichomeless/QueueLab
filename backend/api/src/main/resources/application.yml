@@ -11,6 +11,11 @@ spring:
     username: ${QUEUELAB_RABBITMQ_USER:queuelab}
     password: ${QUEUELAB_RABBITMQ_PASSWORD:}
 
+queuelab:
+  jobs:
+    # Tipos de trabajo que acepta POST /api/v1/jobs.
+    types: noop,csv-import,image-resize
+
 management:
   endpoints:
     web:

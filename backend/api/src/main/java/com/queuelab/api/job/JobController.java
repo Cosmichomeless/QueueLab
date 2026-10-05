@@ -28,7 +28,7 @@ public class JobController {
     /** Crea el trabajo en {@code QUEUED} y responde de inmediato, sin esperar a que se procese. */
     @PostMapping
     ResponseEntity<JobResponse> submit(@RequestBody SubmitJobRequest request) {
-        Job job = service.submit(request.type());
+        Job job = service.submit(request == null ? null : request.type());
         var location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").build(job.id());
         return ResponseEntity.created(location).body(JobResponse.from(job));
     }

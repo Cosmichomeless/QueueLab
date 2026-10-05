@@ -17,10 +17,12 @@ public class JobService {
 
     private final JobRepository jobs;
     private final Clock clock;
+    private final JobTypeValidator typeValidator;
 
-    public JobService(JobRepository jobs, Clock clock) {
+    public JobService(JobRepository jobs, Clock clock, JobTypeValidator typeValidator) {
         this.jobs = jobs;
         this.clock = clock;
+        this.typeValidator = typeValidator;
     }
 
     public Job get(UUID id) {
@@ -48,6 +50,7 @@ public class JobService {
 
     /** Registra el trabajo en {@code QUEUED}; el procesamiento ocurre fuera de la petición. */
     public Job submit(String type) {
+        typeValidator.validate(type);
         // PostgreSQL guarda microsegundos: así lo devuelto coincide con lo almacenado.
         Job job = Job.queued(UUID.randomUUID(), type, clock.instant().truncatedTo(ChronoUnit.MICROS));
         jobs.insert(job);

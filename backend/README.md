@@ -117,6 +117,21 @@ procesos no se pisen.
 
 Los errores usan `application/problem+json` (RFC 9457) con `status`, `title`, `detail` e `instance`.
 
+### Validación y errores
+
+`type` es obligatorio, de hasta 100 caracteres, en `kebab-case` (minúsculas, dígitos y guiones) y
+debe ser uno de los tipos conocidos, que se configuran en `queuelab.jobs.types` (por defecto
+`noop`, `csv-import`, `image-resize`). Cualquier incumplimiento da 400.
+
+| Situación | Respuesta |
+|---|---|
+| `type` ausente, vacío, mal formado o desconocido | 400 «Petición no válida» (el mensaje lista los tipos admitidos) |
+| Cuerpo ausente o JSON ilegible | 400, sin reflejar el mensaje del parser |
+| Id, `status` o `limit` con formato incorrecto | 400 indicando el parámetro |
+| Ruta inexistente, método o `Content-Type` no admitidos | 404 / 405 / 415 con el mismo formato |
+| Trabajo inexistente | 404 «Trabajo no encontrado» |
+| Fallo no previsto | 500 «Error interno» genérico; la traza solo se escribe en el log |
+
 ### Listado paginado
 
 Parámetros opcionales: `status` (`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `RETRYING`),
