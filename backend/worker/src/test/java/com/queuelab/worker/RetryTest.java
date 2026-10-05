@@ -117,7 +117,9 @@ class RetryTest {
         assertThat(failed.attempts()).isEqualTo(3);
         assertThat(failed.error()).isEqualTo("sigue fallando");
         assertThat(failed.finishedAt()).isNotNull();
-        assertThat(outbox.findByJobId(job.id())).hasSize(2); // sin evento nuevo tras agotar
+        // Dos reintentos programados + el aviso a la dead-letter, y ningún reintento más.
+        assertThat(outbox.findByJobId(job.id())).extracting(OutboxEvent::eventType)
+                .containsExactly("JOB_QUEUED", "JOB_QUEUED", "JOB_DEAD_LETTERED");
 
         // Una entrega más no revive un trabajo FAILED: no hay bucle.
         processor.process(JobMessage.forJob(job.id()));
@@ -176,5 +178,39 @@ class RetryTest {
         processor.process(JobMessage.forJob(job.id()));
 
         assertThat(stored(job).startedAt()).isEqualTo(firstStart);
+    }
+
+    @Test
+    void exhaustedJobRecordsADeadLetterEventWithCauseAndAttemptsAndNothingElse() {
+        Job job = storedJob();
+        doThrow(new TransientJobException("sigue fallando")).when(executor).execute(any());
+
+        processor.process(JobMessage.forJob(job.id()));
+        processor.process(JobMessage.forJob(job.id()));
+        processor.process(JobMessage.forJob(job.id()));
+
+        OutboxEvent dead = outbox.findByJobId(job.id()).getLast();
+        assertThat(dead.eventType()).isEqualTo(OutboxEvent.JOB_DEAD_LETTERED);
+        assertThat(dead.isPublished()).isFalse();
+        // Disponible de inmediato (sin espera) y con solo id, intentos y causa.
+        assertThat(jdbc.sql("SELECT available_at IS NULL FROM outbox_events WHERE id = :id")
+                .param("id", dead.id()).query(Boolean.class).single()).isTrue();
+        // jsonb normaliza el orden y los espacios: se compara el contenido, no el texto.
+        var body = tools.jackson.databind.json.JsonMapper.builder().build().readTree(dead.payload());
+        assertThat(body.propertyNames()).containsExactlyInAnyOrder("version", "jobId", "attempts", "cause");
+        assertThat(body.get("jobId").asString()).isEqualTo(job.id().toString());
+        assertThat(body.get("attempts").asInt()).isEqualTo(3);
+        assertThat(body.get("cause").asString()).isEqualTo("sigue fallando");
+    }
+
+    @Test
+    void permanentFailureDoesNotGoToTheDeadLetterQueue() {
+        Job job = storedJob();
+        doThrow(new JobExecutionException("El CSV está vacío")).when(executor).execute(any());
+
+        processor.process(JobMessage.forJob(job.id()));
+
+        assertThat(outbox.findByJobId(job.id())).extracting(OutboxEvent::eventType)
+                .doesNotContain(OutboxEvent.JOB_DEAD_LETTERED);
     }
 }

@@ -21,7 +21,8 @@ import com.queuelab.core.outbox.OutboxRepository;
  * Lleva un trabajo por {@code QUEUED → RUNNING → COMPLETED/FAILED}, persistiendo cada paso en PostgreSQL
  * (la fuente de verdad que lee la API). El paso a {@code RUNNING} es un reclamo atómico
  * ({@link JobRepository#claim}) y el cierre queda atado al número de intento, así dos workers no
- * ejecutan el mismo intento ni uno rezagado pisa el resultado de otro.
+ * ejecutan el mismo intento ni uno rezagado pisa el resultado de otro. Un trabajo que agota sus
+ * reintentos queda {@code FAILED} y su aviso se publica en la cola dead-letter (vía outbox).
  */
 @Component
 public class JobProcessor {
@@ -78,7 +79,7 @@ public class JobProcessor {
     private void retryOrFail(Job running, String error) {
         if (!retryPolicy.hasAttemptsLeft(running.attempts())) {
             log.warn("El trabajo {} agotó sus {} intentos", running.id(), retryPolicy.maxAttempts());
-            finish(running, running.failed(error, now()));
+            deadLetter(running, error);
             return;
         }
         Instant now = now();
@@ -97,6 +98,26 @@ public class JobProcessor {
                     running.attempts() + 1, retryPolicy.maxAttempts());
         } else {
             log.warn("No se pudo programar el reintento de {}: el intento {} ya no está en curso",
+                    running.id(), running.attempts());
+        }
+    }
+
+    /**
+     * Reintentos agotados: {@code FAILED} y, en la misma transacción, el evento que lleva el mensaje a la
+     * cola dead-letter para inspeccionarlo. Así no puede haber un {@code FAILED} agotado sin aviso en la DLQ.
+     */
+    private void deadLetter(Job running, String error) {
+        Instant now = now();
+        Job failed = running.failed(error, now);
+        Boolean recorded = transaction.execute(status -> {
+            if (!jobs.finishAttempt(failed)) {
+                return false;
+            }
+            outbox.insert(OutboxEvent.deadLettered(failed, now));
+            return true;
+        });
+        if (!Boolean.TRUE.equals(recorded)) {
+            log.warn("No se pudo guardar el estado final de {}: el intento {} ya no está en curso",
                     running.id(), running.attempts());
         }
     }

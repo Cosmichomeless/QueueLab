@@ -222,8 +222,8 @@ queda ningún trabajo `QUEUED` sin evento publicable.
 
 ### Despacho del outbox a RabbitMQ
 
-`OutboxDispatcher` (API) publica los eventos pendientes en `queuelab.jobs` con la routing key
-`job.queued`, usando *publisher confirms* (`publisher-confirm-type: correlated`) y mensajes
+`OutboxDispatcher` (API) publica los eventos pendientes según su tipo (`JOB_QUEUED` → `queuelab.jobs` con
+la routing key `job.queued`; `JOB_DEAD_LETTERED` → la DLX, ver más abajo), usando *publisher confirms* (`publisher-confirm-type: correlated`) y mensajes
 obligatorios (`mandatory`, `publisher-returns`). `OutboxDispatchScheduler` lo lanza cada segundo.
 
 - **Confirmado** por el broker → `published_at` se rellena y `last_error` se limpia.
@@ -301,6 +301,27 @@ La espera tras el intento *n* es `initial-delay × multiplier^(n-1)`, acotada po
 
 Con los valores por defecto: intento 1 → 5 s → intento 2 → 10 s → intento 3 → `FAILED`.
 La API expone `status` (`RETRYING`) y `attempts` (nº de intento en curso o del último realizado).
+
+### Cola dead-letter: trabajos con reintentos agotados
+
+Cuando un trabajo agota `max-attempts`, el worker lo deja en `FAILED` y, **en la misma transacción**,
+inserta un evento `JOB_DEAD_LETTERED` en el outbox. El `OutboxDispatcher` de la API lo publica (con
+publisher confirms, como el resto) en `queuelab.jobs.dlx` con la routing key `job.queued.dead`, y
+termina en `queuelab.jobs.queued.dlq`. No puede haber un `FAILED` por agotamiento sin su aviso en la
+DLQ, ni al revés. Los fallos permanentes o inesperados (que no se reintentan) **no** van a la DLQ; sí
+van los mensajes malformados o de trabajos inexistentes, rechazados por el consumidor.
+
+Mensaje de agotamiento (`application/json`; es un `JobMessage` ampliado):
+
+```json
+{"version":1,"jobId":"2f6c0d52-6f0e-4a29-9d3a-1f2b7a7b3f10","attempts":3,"cause":"El servicio externo no responde"}
+```
+
+Solo lleva el id, el número de ejecuciones y el mismo resumen de error que expone la API: nunca datos
+de entrada del trabajo. La misma información se consulta sin tocar la cola con
+`GET /api/v1/jobs/{id}` (`status: FAILED`, `attempts`, `error`) o `GET /api/v1/jobs?status=FAILED`.
+Para inspeccionar la cola: `docker compose exec rabbitmq rabbitmqctl list_queues name messages` o la
+consola de gestión en http://localhost:15672 (`queuelab`/`queuelab`).
 
 ## Prueba de extremo a extremo (`e2e`)
 

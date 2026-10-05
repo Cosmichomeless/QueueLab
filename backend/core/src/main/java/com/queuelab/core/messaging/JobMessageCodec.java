@@ -30,6 +30,20 @@ public final class JobMessageCodec {
                 .toString();
     }
 
+    /** Cuerpo JSON del mensaje de la cola dead-letter; también es lo que se guarda en el outbox. */
+    public static String toJson(DeadLetterMessage message) {
+        var node = JSON.createObjectNode()
+                .put("version", message.version())
+                .put("jobId", message.jobId().toString())
+                .put("attempts", message.attempts());
+        if (message.cause() == null) {
+            node.putNull("cause");
+        } else {
+            node.put("cause", message.cause());
+        }
+        return node.toString();
+    }
+
     /** Mensaje persistente, {@code application/json}, listo para publicar. */
     public static Message encode(JobMessage message) {
         return encodeJson(toJson(message));

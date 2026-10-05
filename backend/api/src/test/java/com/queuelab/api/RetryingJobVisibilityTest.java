@@ -54,4 +54,21 @@ class RetryingJobVisibilityTest {
         mvc.perform(get("/api/v1/jobs/" + queued.id()))
                 .andExpect(jsonPath("$.attempts").value(0));
     }
+
+    @Test
+    void exhaustedJobShowsCauseAndAttemptsAndNeverAnyInput() throws Exception {
+        Job queued = Job.queued(UUID.randomUUID(), "csv-import", Instant.now());
+        jobs.insert(queued);
+        Job running = jobs.claim(queued.id(), Instant.now()).orElseThrow();
+        jobs.finishAttempt(running.failed("El servicio externo no responde", Instant.now()));
+
+        mvc.perform(get("/api/v1/jobs/" + queued.id()))
+                .andExpect(jsonPath("$.status").value(JobStatus.FAILED.name()))
+                .andExpect(jsonPath("$.attempts").value(1))
+                .andExpect(jsonPath("$.error").value("El servicio externo no responde"))
+                // Solo campos públicos conocidos: no hay payload ni entrada del trabajo.
+                .andExpect(jsonPath("$.length()").value(10))
+                .andExpect(jsonPath("$.payload").doesNotExist())
+                .andExpect(jsonPath("$.input").doesNotExist());
+    }
 }

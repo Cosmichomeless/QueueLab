@@ -27,6 +27,9 @@ import com.queuelab.core.outbox.OutboxRepository;
  * broker los confirma (publisher confirms). Si RabbitMQ no responde, el evento sigue pendiente con
  * {@code attempts} y {@code last_error} actualizados, y se reintenta en la siguiente pasada.
  *
+ * <p>El destino depende del tipo de evento ({@link JobMessagingTopology#routeFor}): los trabajos listos van
+ * a la cola principal y los que agotaron sus reintentos, a la dead-letter.
+ *
  * <p>La entrega es <b>al menos una vez</b>: si el proceso cae entre la confirmación y el guardado de
  * {@code published_at}, el mensaje se republica. El consumidor debe tolerar duplicados.
  */
@@ -79,9 +82,15 @@ public class OutboxDispatcher {
 
     private Outcome publish(OutboxEvent event) {
         CorrelationData correlation = new CorrelationData(event.id().toString());
+        JobMessagingTopology.Route route;
         try {
-            rabbit.send(JobMessagingTopology.EXCHANGE, JobMessagingTopology.ROUTING_KEY,
-                    JobMessageCodec.encodeJson(event.payload()), correlation);
+            route = JobMessagingTopology.routeFor(event.eventType());
+        } catch (IllegalArgumentException e) {
+            return fail(event, Outcome.REJECTED, e.getMessage());
+        }
+        try {
+            rabbit.send(route.exchange(), route.routingKey(), JobMessageCodec.encodeJson(event.payload()),
+                    correlation);
             CorrelationData.Confirm confirm = correlation.getFuture().get(confirmTimeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!confirm.isAck()) {
                 return fail(event, Outcome.REJECTED, "El broker rechazó el mensaje (nack): " + confirm.getReason());

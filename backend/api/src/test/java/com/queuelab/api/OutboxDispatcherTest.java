@@ -67,6 +67,7 @@ class OutboxDispatcherTest {
         jdbc.sql("DELETE FROM jobs").update();
         admin.initialize();
         admin.purgeQueue(JobMessagingTopology.QUEUE);
+        admin.purgeQueue(JobMessagingTopology.DEAD_LETTER_QUEUE);
     }
 
     private UUID submit() throws Exception {
@@ -100,6 +101,42 @@ class OutboxDispatcherTest {
         // El que sigue pendiente es justo el de espera futura.
         assertThat(jdbc.sql("SELECT count(*) FROM outbox_events WHERE job_id = :id AND published_at IS NULL "
                 + "AND available_at > now()").param("id", jobId).query(Long.class).single()).isEqualTo(1);
+    }
+
+    @Test
+    void deadLetteredEventGoesToTheDeadLetterQueueAndNotToTheMainOne() throws Exception {
+        UUID jobId = submit();
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+        admin.purgeQueue(JobMessagingTopology.QUEUE);
+        var repo = new com.queuelab.core.job.JobRepository(jdbc);
+        var running = repo.claim(jobId, Instant.now()).orElseThrow();
+        var failed = running.failed("El servicio externo no responde", Instant.now());
+        repo.finishAttempt(failed);
+        outbox.insert(OutboxEvent.deadLettered(failed, Instant.now()));
+
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+
+        Message dead = rabbit.receive(JobMessagingTopology.DEAD_LETTER_QUEUE, 5_000);
+        assertThat(dead).isNotNull();
+        var body = json.readTree(dead.getBody());
+        assertThat(body.get("jobId").asString()).isEqualTo(jobId.toString());
+        assertThat(body.get("attempts").asInt()).isEqualTo(1);
+        assertThat(body.get("cause").asString()).isEqualTo("El servicio externo no responde");
+        assertThat(body.propertyNames()).containsExactlyInAnyOrder("version", "jobId", "attempts", "cause");
+        assertThat(rabbit.receive(JobMessagingTopology.QUEUE, 300)).isNull();
+    }
+
+    @Test
+    void unknownEventTypeIsRejectedAndStaysPending() throws Exception {
+        UUID jobId = submit();
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+        jdbc.sql("UPDATE outbox_events SET event_type = 'RARO', published_at = NULL WHERE job_id = :id")
+                .param("id", jobId).update();
+
+        assertThat(dispatcher.dispatchPending()).isZero();
+
+        assertThat(eventOf(jobId).isPublished()).isFalse();
+        assertThat(eventOf(jobId).attempts()).isEqualTo(1);
     }
 
     @Test

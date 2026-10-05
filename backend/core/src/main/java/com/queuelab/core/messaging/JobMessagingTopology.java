@@ -8,6 +8,8 @@ import org.springframework.amqp.core.ExchangeBuilder;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 
+import com.queuelab.core.outbox.OutboxEvent;
+
 /**
  * Nombres y declaración de la topología de RabbitMQ. API y worker usan los mismos valores.
  *
@@ -16,6 +18,8 @@ import org.springframework.amqp.core.QueueBuilder;
  *                                                                                  |  job.queued.dead
  *                                                                                  v
  *                                                                        queuelab.jobs.queued.dlq
+ *                                                                                  ^
+ * trabajo con reintentos agotados --(evento JOB_DEAD_LETTERED del outbox)----------+
  * </pre>
  */
 public final class JobMessagingTopology {
@@ -29,6 +33,24 @@ public final class JobMessagingTopology {
     public static final String DEAD_LETTER_ROUTING_KEY = "job.queued.dead";
 
     private JobMessagingTopology() {
+    }
+
+    /** Exchange y routing key a los que se publica un evento del outbox. */
+    public record Route(String exchange, String routingKey) {
+    }
+
+    /**
+     * Destino de cada tipo de evento del outbox: los trabajos listos van a la cola principal y los que
+     * agotaron sus reintentos, directamente a la dead-letter.
+     *
+     * @throws IllegalArgumentException si el tipo no es conocido
+     */
+    public static Route routeFor(String eventType) {
+        return switch (eventType) {
+            case OutboxEvent.JOB_QUEUED -> new Route(EXCHANGE, ROUTING_KEY);
+            case OutboxEvent.JOB_DEAD_LETTERED -> new Route(DEAD_LETTER_EXCHANGE, DEAD_LETTER_ROUTING_KEY);
+            default -> throw new IllegalArgumentException("Tipo de evento desconocido: " + eventType);
+        };
     }
 
     /**

@@ -111,6 +111,28 @@ class JobMessagingTopologyTest {
         assertThat(template.receive(JobMessagingTopology.QUEUE, 500)).isNull();
     }
 
+    @Test
+    void eventsAreRoutedByTypeAndUnknownTypesAreRefused() {
+        assertThat(JobMessagingTopology.routeFor("JOB_QUEUED"))
+                .isEqualTo(new JobMessagingTopology.Route(JobMessagingTopology.EXCHANGE, JobMessagingTopology.ROUTING_KEY));
+        assertThat(JobMessagingTopology.routeFor("JOB_DEAD_LETTERED")).isEqualTo(new JobMessagingTopology.Route(
+                JobMessagingTopology.DEAD_LETTER_EXCHANGE, JobMessagingTopology.DEAD_LETTER_ROUTING_KEY));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> JobMessagingTopology.routeFor("OTRO"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void messagePublishedToTheDeadLetterExchangeLandsInTheDeadLetterQueue() {
+        drain(JobMessagingTopology.QUEUE);
+        drain(JobMessagingTopology.DEAD_LETTER_QUEUE);
+        var route = JobMessagingTopology.routeFor("JOB_DEAD_LETTERED");
+
+        template.send(route.exchange(), route.routingKey(), new Message("{}".getBytes()));
+
+        assertThat(template.receive(JobMessagingTopology.DEAD_LETTER_QUEUE, 5_000)).isNotNull();
+        assertThat(template.receive(JobMessagingTopology.QUEUE, 300)).isNull();
+    }
+
     private static void drain(String queue) {
         while (template.receive(queue) != null) {
             // vaciar
