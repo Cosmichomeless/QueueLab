@@ -1,0 +1,8 @@
+# Perfil `local` (SPRING_PROFILES_ACTIVE=local): credenciales de desarrollo que
+# coinciden con los valores por defecto de docker-compose.yml. NO usar fuera de local.
+# Las variables QUEUELAB_* siguen teniendo prioridad si se definen.
+spring:
+  datasource:
+    password: ${QUEUELAB_DB_PASSWORD:queuelab}
+  rabbitmq:
+    password: ${QUEUELAB_RABBITMQ_PASSWORD:queuelab}

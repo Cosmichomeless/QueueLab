@@ -59,11 +59,20 @@ Ambos procesos leen las URLs y credenciales de variables de entorno
 | `QUEUELAB_RABBITMQ_USER` | `queuelab` | Usuario de RabbitMQ |
 | `QUEUELAB_RABBITMQ_PASSWORD` | _(vacío)_ | Contraseña de RabbitMQ |
 
+### Perfiles y ficheros de ejemplo
+
+- Todas las variables (Compose, API, worker y dashboard) están explicadas en
+  [`.env.example`](../.env.example); cópielo a `.env` (ignorado por Git, igual que
+  `.env.local` y `.env.*.local`). El dashboard tiene el suyo en
+  [`frontend/.env.example`](../frontend/.env.example).
+- El perfil de Spring **`local`** (`application-local.yml` en API y worker) aporta las
+  contraseñas de desarrollo de Docker Compose si no se definen. Sin ese perfil las
+  contraseñas están vacías, así que en cualquier otro entorno hay que definirlas.
+
 Ejemplo con los servicios locales:
 
 ```bash
-export QUEUELAB_DB_PASSWORD=queuelab QUEUELAB_RABBITMQ_PASSWORD=queuelab
-java -jar backend/api/target/queuelab-api-0.1.0-SNAPSHOT.jar
+SPRING_PROFILES_ACTIVE=local java -jar backend/api/target/queuelab-api-0.1.0-SNAPSHOT.jar
 ```
 
 ## Migraciones de base de datos (Flyway)
