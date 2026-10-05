@@ -26,5 +26,7 @@
         <module>core</module>
         <module>api</module>
         <module>worker</module>
+        <!-- Debe ir el último: lanza los jars empaquetados de api y worker. -->
+        <module>e2e</module>
     </modules>
 </project>

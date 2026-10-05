@@ -246,3 +246,19 @@ columnas `result` y `error`.
 
 El worker solo **lee** de PostgreSQL con el esquema que migra la API (no incluye Flyway; los tests lo
 crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.
+
+## Prueba de extremo a extremo (`e2e`)
+
+El módulo `e2e` verifica el primer flujo asíncrono completo sin atajos. `EnqueueToCompletionTest` arranca
+PostgreSQL y RabbitMQ con Testcontainers y lanza los **jars reales** de la API y del worker como procesos
+separados (la API migra el esquema; el worker se lanza después). Todo se observa por HTTP y SQL:
+
+1. `POST /api/v1/jobs` → `201` en `QUEUED`; el worker lo deja en `COMPLETED` con `result`, y el evento del
+   outbox queda publicado.
+2. Con RabbitMQ parado (el contenedor se detiene de verdad), la API sigue aceptando el trabajo, que queda en
+   `QUEUED` con su evento de outbox pendiente y `attempts` en aumento. Al volver el broker, el
+   despachador lo publica y el worker lo completa.
+
+Los logs de cada proceso quedan en `e2e/target/e2e-logs/`. El módulo va el último del reactor porque necesita
+los jars empaquetados: ejecuta `./mvnw verify` (o `./mvnw -pl e2e -am verify`); lanzar solo `test` falla con un
+mensaje que lo explica. Requiere Docker.
