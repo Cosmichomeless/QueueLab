@@ -17,6 +17,10 @@ queuelab:
     types: noop,csv-import,image-resize
 
 management:
+  health:
+    rabbit:
+      # La API acepta trabajos aunque RabbitMQ esté caído (el outbox los conserva): no afecta a su salud.
+      enabled: false
   endpoints:
     web:
       exposure:

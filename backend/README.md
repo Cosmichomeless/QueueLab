@@ -150,3 +150,31 @@ esquema crea Flyway al arrancar el contexto: creación por API, consulta, transi
 (`QUEUED` → `RUNNING` → `RETRYING` → `RUNNING` → `COMPLETED`), paginación por cursor sin repetidos ni
 saltos, filtro por estado, las 10 transiciones inválidas representativas, el rechazo de escrituras
 obsoletas y los errores 404/400. Se ejecutan con `./mvnw verify`; solo hace falta Docker.
+
+## Mensajería (RabbitMQ)
+
+El contrato vive en `core` (`com.queuelab.core.messaging`), así que API y worker comparten
+exactamente el mismo formato y los mismos nombres, sin duplicar lógica.
+
+| Elemento | Valor |
+|---|---|
+| Exchange | `queuelab.jobs` (direct, durable) |
+| Cola | `queuelab.jobs.queued` (durable) |
+| Routing key | `job.queued` |
+| Dead-letter | exchange `queuelab.jobs.dlx` → cola `queuelab.jobs.queued.dlq` (routing key `job.queued.dead`) |
+
+**Mensaje** (`JobMessage`, `application/json`, persistente): `{"version":1,"jobId":"<uuid>"}`. Solo
+lleva el id: el worker carga el resto de PostgreSQL, que es la fuente de verdad. `version` permite
+evolucionar el contrato; los campos desconocidos se ignoran y una versión no soportada o un cuerpo
+inválido lanza `MalformedJobMessageException`. `JobMessageCodec` es el único sitio que
+serializa y valida.
+
+**Cómo se declara la topología.** `JobMessagingConfiguration` (importada por la API y por el
+worker) registra los `Declarables`. El `RabbitAdmin` que autoconfigura Spring Boot los declara al
+abrir la primera conexión y en cada reconexión. La declaración es idempotente, así que da igual
+quién llegue primero. El worker abre conexión al arrancar (su consumidor, #17); la API la abre al
+publicar (#16). La API **no** exige RabbitMQ para arrancar ni para aceptar trabajos, y por eso su
+indicador de salud de RabbitMQ está desactivado.
+
+Un mensaje rechazado sin reencolar (p. ej. uno malformado) pasa a `queuelab.jobs.queued.dlq` en vez de
+bloquear la cola principal.

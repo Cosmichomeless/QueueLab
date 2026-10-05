@@ -5,9 +5,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Import;
 
 import com.queuelab.core.QueueLabCoreConfiguration;
+import com.queuelab.core.messaging.JobMessagingConfiguration;
 
 @SpringBootApplication
-@Import(QueueLabCoreConfiguration.class)
+@Import({QueueLabCoreConfiguration.class, JobMessagingConfiguration.class})
 public class QueueLabApiApplication {
 
     public static void main(String[] args) {
