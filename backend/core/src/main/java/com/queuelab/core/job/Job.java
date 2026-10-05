@@ -12,6 +12,7 @@ import java.util.UUID;
  * @param finishedAt momento en que llegó a un estado terminal
  * @param result     resumen del resultado de un trabajo {@code COMPLETED}; {@code null} en el resto
  * @param error      resumen del error de un trabajo {@code FAILED}; nunca lleva trazas ni datos sensibles
+ * @param attempts   intentos de ejecución reclamados por un worker (0 mientras nadie lo ha tomado)
  */
 public record Job(
         UUID id,
@@ -22,7 +23,8 @@ public record Job(
         Instant startedAt,
         Instant finishedAt,
         String result,
-        String error) {
+        String error,
+        int attempts) {
 
     /** Longitud máxima de {@code result} y {@code error}, igual que las columnas. */
     public static final int RESULT_MAX_LENGTH = 1000;
@@ -43,6 +45,15 @@ public record Job(
         if (error != null && error.length() > ERROR_MAX_LENGTH) {
             throw new IllegalArgumentException("error supera " + ERROR_MAX_LENGTH + " caracteres");
         }
+        if (attempts < 0) {
+            throw new IllegalArgumentException("attempts no puede ser negativo");
+        }
+    }
+
+    /** Trabajo sin intentos todavía. */
+    public Job(UUID id, String type, JobStatus status, Instant createdAt, Instant updatedAt, Instant startedAt,
+            Instant finishedAt, String result, String error) {
+        this(id, type, status, createdAt, updatedAt, startedAt, finishedAt, result, error, 0);
     }
 
     /** Trabajo sin resultado ni error. */
@@ -53,7 +64,7 @@ public record Job(
 
     /** Crea un trabajo nuevo en {@code QUEUED}. */
     public static Job queued(UUID id, String type, Instant now) {
-        return new Job(id, type, JobStatus.QUEUED, now, now, null, null, null, null);
+        return new Job(id, type, JobStatus.QUEUED, now, now, null, null, null, null, 0);
     }
 
     /** Pasa al estado indicado o lanza {@link InvalidJobTransitionException}. */
@@ -63,21 +74,21 @@ public record Job(
         }
         Instant started = startedAt == null && target == JobStatus.RUNNING ? now : startedAt;
         Instant finished = target.isTerminal() ? now : finishedAt;
-        return new Job(id, type, target, createdAt, now, started, finished, result, error);
+        return new Job(id, type, target, createdAt, now, started, finished, result, error, attempts);
     }
 
     /** {@code RUNNING → COMPLETED} guardando un resumen del resultado (se recorta a {@link #RESULT_MAX_LENGTH}). */
     public Job completed(String result, Instant now) {
         Job done = transitionTo(JobStatus.COMPLETED, now);
         return new Job(id, type, done.status, createdAt, now, done.startedAt, done.finishedAt,
-                truncate(result, RESULT_MAX_LENGTH), null);
+                truncate(result, RESULT_MAX_LENGTH), null, attempts);
     }
 
     /** {@code RUNNING → FAILED} guardando un resumen del error (se recorta a {@link #ERROR_MAX_LENGTH}). */
     public Job failed(String error, Instant now) {
         Job done = transitionTo(JobStatus.FAILED, now);
         return new Job(id, type, done.status, createdAt, now, done.startedAt, done.finishedAt,
-                null, truncate(error, ERROR_MAX_LENGTH));
+                null, truncate(error, ERROR_MAX_LENGTH), attempts);
     }
 
     private static String truncate(String value, int max) {

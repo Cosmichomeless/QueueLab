@@ -246,15 +246,20 @@ obligatorios (`mandatory`, `publisher-returns`). `OutboxDispatchScheduler` lo la
 El worker (`backend/worker`) consume `queuelab.jobs.queued` con un `@RabbitListener` (`JobConsumer`):
 
 1. Decodifica y valida el mensaje con `JobMessageCodec` (el mismo contrato que la API).
-2. `JobProcessor` carga el trabajo de PostgreSQL por su id (la fuente de verdad). Si ya no está en
-   `QUEUED` (mensaje duplicado, entrega repetida) lo ignora y confirma el mensaje.
-3. Pasa a `RUNNING` con una actualización condicional (`UPDATE ... WHERE status = 'QUEUED'`), de modo que
-   dos workers no ejecutan el mismo trabajo, y fija `started_at`.
+2. `JobProcessor` **reclama** el trabajo con `JobRepository.claim`: una sola sentencia
+   (`UPDATE ... SET status = 'RUNNING', attempts = attempts + 1 ... WHERE id = ? AND status = 'QUEUED'
+   RETURNING *`) que fija `started_at` y devuelve el trabajo con su número de intento. PostgreSQL
+   serializa los `UPDATE` sobre la misma fila, así que si dos workers reciben el mismo mensaje solo uno
+   obtiene el trabajo.
+3. Si el reclamo no devuelve nada (entrega duplicada, otro worker lo tomó, ya terminó) el mensaje se
+   confirma sin ejecutar nada: no se duplican efectos. Si el trabajo ni siquiera existe, va a la DLQ.
 4. Ejecuta el `JobExecutor` (por ahora `NoopJobExecutor`) y guarda el estado terminal:
    - Éxito → `COMPLETED`, con `finished_at` y `result` (resumen de hasta 1000 caracteres).
    - `JobExecutionException` (fallo esperado) → `FAILED`, con su mensaje como `error` (hasta 500).
    - Cualquier otra excepción → `FAILED` con el texto genérico «Error inesperado durante la
      ejecución»; el detalle (que podría incluir cadenas de conexión o datos internos) solo va al log.
+   El cierre (`JobRepository.finishAttempt`) exige `status = 'RUNNING'` **y** el mismo número de
+   intento, de modo que un worker rezagado cuyo intento ya fue relevado no pisa el resultado del nuevo.
    El resultado queda persistido, así que el mensaje se confirma: no va a la DLQ ni se reentrega.
 5. Mensaje malformado (no es JSON, versión no soportada, `jobId` inválido) o trabajo inexistente →
    `AmqpRejectAndDontRequeueException`: RabbitMQ lo desvía a `queuelab.jobs.queued.dlq` y los demás
@@ -262,7 +267,8 @@ El worker (`backend/worker`) consume `queuelab.jobs.queued` con un `@RabbitListe
 
 `GET /api/v1/jobs/{id}` ya refleja estos cambios porque la API lee de la misma tabla: `status`,
 `startedAt`, `finishedAt`, `result` y `error` (`null` mientras no apliquen). La migración `V6` añade las
-columnas `result` y `error`.
+columnas `result` y `error`; `V8` añade `attempts` (intentos reclamados, 0 hasta que un worker toma el
+trabajo).
 
 El worker solo **lee** de PostgreSQL con el esquema que migra la API (no incluye Flyway; los tests lo
 crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.

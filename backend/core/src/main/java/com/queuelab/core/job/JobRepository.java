@@ -127,6 +127,52 @@ public class JobRepository {
                 .update() == 1;
     }
 
+    /**
+     * Reclama el trabajo para ejecutarlo: en <b>una sola sentencia</b> pasa {@code QUEUED → RUNNING} y
+     * suma un intento. PostgreSQL serializa los {@code UPDATE} sobre la misma fila y el segundo
+     * reevalúa {@code status = 'QUEUED'} ya sin éxito, así que solo un worker recibe el trabajo.
+     *
+     * @return el trabajo ya en {@code RUNNING} con su número de intento, o vacío si no estaba en
+     *         {@code QUEUED} (otro worker lo reclamó antes, o ya terminó)
+     */
+    public Optional<Job> claim(UUID id, java.time.Instant now) {
+        return jdbc.sql("""
+                UPDATE jobs
+                   SET status = 'RUNNING', attempts = attempts + 1, updated_at = :now,
+                       started_at = COALESCE(started_at, :now)
+                 WHERE id = :id AND status = 'QUEUED'
+             RETURNING *
+                """)
+                .param("id", id)
+                .param("now", utc(now))
+                .query(JobRepository::map)
+                .optional();
+    }
+
+    /**
+     * Cierra un intento: guarda el estado final solo si el trabajo sigue en {@code RUNNING} <b>y</b> en
+     * el mismo intento ({@code finished.attempts()}). Un worker rezagado, cuyo intento ya fue relevado,
+     * no pisa el resultado del nuevo.
+     *
+     * @return {@code true} si se guardó
+     */
+    public boolean finishAttempt(Job finished) {
+        return jdbc.sql("""
+                UPDATE jobs
+                   SET status = :status, updated_at = :updatedAt, finished_at = :finishedAt,
+                       result = :result, error = :error
+                 WHERE id = :id AND status = 'RUNNING' AND attempts = :attempts
+                """)
+                .param("id", finished.id())
+                .param("status", finished.status().name())
+                .param("updatedAt", utc(finished.updatedAt()))
+                .param("finishedAt", utc(finished.finishedAt()))
+                .param("result", finished.result())
+                .param("error", finished.error())
+                .param("attempts", finished.attempts())
+                .update() == 1;
+    }
+
     private static Job map(ResultSet rs, int rowNum) throws SQLException {
         return new Job(
                 rs.getObject("id", UUID.class),
@@ -137,7 +183,8 @@ public class JobRepository {
                 instant(rs.getObject("started_at", OffsetDateTime.class)),
                 instant(rs.getObject("finished_at", OffsetDateTime.class)),
                 rs.getString("result"),
-                rs.getString("error"));
+                rs.getString("error"),
+                rs.getInt("attempts"));
     }
 
     private static java.time.Instant instant(OffsetDateTime value) {
