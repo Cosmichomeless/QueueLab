@@ -397,3 +397,18 @@ separados (la API migra el esquema; el worker se lanza después). Todo se observ
 Los logs de cada proceso quedan en `e2e/target/e2e-logs/`. El módulo va el último del reactor porque necesita
 los jars empaquetados: ejecuta `./mvnw verify` (o `./mvnw -pl e2e -am verify`); lanzar solo `test` falla con un
 mensaje que lo explica. Requiere Docker.
+
+### Fallos esperables (`ReliabilityTest`)
+
+Misma infraestructura (procesos reales, Docker, HTTP y SQL), centrada en lo que puede salir mal:
+
+| Escenario | Qué se demuestra |
+|---|---|
+| Envío repetido | 6 peticiones simultáneas y una posterior con el mismo `Idempotency-Key` devuelven el mismo `id`: una fila en `jobs`, un evento de outbox, `attempts = 1`. |
+| Entrega duplicada | Tras `COMPLETED`, el mismo evento se republica 3 veces (`published_at = NULL`): el worker descarta las copias; `status`, `attempts`, `finishedAt` y `result` no cambian. |
+| Caída del broker con el worker conectado | RabbitMQ parado: la API acepta 3 trabajos, siguen `QUEUED` con su evento pendiente y el worker sigue vivo. Al volver, se reconecta y cada trabajo se ejecuta **una vez** (`attempts = 1`). |
+| Worker caído a mitad de trabajo | Se deja un `RUNNING` con el lease vencido, que es lo que queda tras matar al worker. Un worker nuevo lo recupera: con intentos libres se reintenta y acaba `COMPLETED` con `attempts = 2`; sin intentos acaba `FAILED` y su `JOB_DEAD_LETTERED` se publica. |
+
+Limitación: el crash del worker se reproduce con el estado que deja en la base de datos, no con un `kill -9`
+a mitad de ejecución, porque el único ejecutor (`noop`) es instantáneo. Los hilos y el latido del lease
+se prueban aparte en `LeaseRecoveryTest`; los reintentos manuales, en `ManualRetryTest`.
