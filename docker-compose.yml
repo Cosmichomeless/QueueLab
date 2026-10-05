@@ -1,0 +1,44 @@
+# Servicios locales de QueueLab para desarrollo (PostgreSQL y RabbitMQ).
+# Los valores por defecto son SOLO para desarrollo local; sobrescríbalos con un
+# fichero .env (ver .env.example). Los puertos solo se publican en 127.0.0.1.
+# PostgreSQL usa el puerto 5434 del host para no chocar con otras instancias locales (5432/5433).
+name: queuelab
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-queuelab}
+      POSTGRES_USER: ${POSTGRES_USER:-queuelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-queuelab}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-queuelab}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-queuelab}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  rabbitmq-data:

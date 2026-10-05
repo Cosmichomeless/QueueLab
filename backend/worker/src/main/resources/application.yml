@@ -1,6 +1,15 @@
 spring:
   application:
     name: queuelab-worker
+  datasource:
+    url: ${QUEUELAB_DB_URL:jdbc:postgresql://localhost:5434/queuelab}
+    username: ${QUEUELAB_DB_USER:queuelab}
+    password: ${QUEUELAB_DB_PASSWORD:}
+  rabbitmq:
+    host: ${QUEUELAB_RABBITMQ_HOST:localhost}
+    port: ${QUEUELAB_RABBITMQ_PORT:5672}
+    username: ${QUEUELAB_RABBITMQ_USER:queuelab}
+    password: ${QUEUELAB_RABBITMQ_PASSWORD:}
   main:
     # El worker no expone HTTP: es un proceso de fondo que consume mensajes.
     web-application-type: none
