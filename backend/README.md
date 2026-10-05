@@ -142,3 +142,11 @@ se envía como `cursor` para pedir la siguiente.
 La paginación es **por cursor**, no por offset: el orden es total (`created_at` descendente y
 `id` como desempate), así que no se repiten ni se saltan trabajos aunque se creen otros mientras
 el cliente pagina. El cursor es opaco; un cursor inválido da 400.
+
+## Pruebas del ciclo de vida
+
+`JobLifecycleApiTest` recorre el ciclo completo contra un PostgreSQL real (Testcontainers) cuyo
+esquema crea Flyway al arrancar el contexto: creación por API, consulta, transiciones
+(`QUEUED` → `RUNNING` → `RETRYING` → `RUNNING` → `COMPLETED`), paginación por cursor sin repetidos ni
+saltos, filtro por estado, las 10 transiciones inválidas representativas, el rechazo de escrituras
+obsoletas y los errores 404/400. Se ejecutan con `./mvnw verify`; solo hace falta Docker.
