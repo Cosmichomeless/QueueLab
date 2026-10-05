@@ -2,8 +2,12 @@ package com.queuelab.api;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
+
+import com.queuelab.core.QueueLabCoreConfiguration;
 
 @SpringBootApplication
+@Import(QueueLabCoreConfiguration.class)
 public class QueueLabApiApplication {
 
     public static void main(String[] args) {

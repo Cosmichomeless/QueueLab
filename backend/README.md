@@ -85,3 +85,24 @@ La **API** aplica las migraciones pendientes al arrancar; el worker no las ejecu
 - Nunca se edita una migración ya aplicada: los cambios van en una versión nueva.
 - Las pruebas de la API levantan un PostgreSQL desechable con Testcontainers
   (requieren Docker en marcha).
+
+## Modelo de trabajos (`core`)
+
+La tabla `jobs` (migración `V2__create_jobs.sql`) guarda `id` (UUID), `type`, `status` y los
+timestamps `created_at`, `updated_at`, `started_at` y `finished_at`. Una restricción `CHECK`
+garantiza que el estado sea uno de los cinco conocidos.
+
+Las transiciones se validan en la lógica de aplicación (`com.queuelab.core.job.JobStatus`
+y `Job.transitionTo`), que lanza `InvalidJobTransitionException` si no están permitidas:
+
+| Desde | Hacia |
+|---|---|
+| `QUEUED` | `RUNNING` |
+| `RUNNING` | `COMPLETED`, `FAILED`, `RETRYING` |
+| `RETRYING` | `RUNNING` |
+| `COMPLETED`, `FAILED` | _(terminales)_ |
+
+`started_at` es la primera vez que el trabajo pasó a `RUNNING` (no cambia en reintentos) y
+`finished_at` se fija al llegar a un estado terminal. `JobRepository.update(job, expectedStatus)`
+guarda el cambio solo si el estado en base de datos sigue siendo el esperado, para que dos
+procesos no se pisen.
