@@ -238,6 +238,50 @@ public class JobRepository {
                 .update() == 1;
     }
 
+    /**
+     * Devuelve a {@code QUEUED} un trabajo {@code FAILED} (reintento manual). Exige que siga en
+     * {@code FAILED} con el mismo número de intentos que se leyó, así que de dos peticiones simultáneas solo
+     * una prospera.
+     *
+     * @param requeued          el trabajo ya transformado con {@link Job#requeued}
+     * @param attemptsWhenRead  intentos que tenía el {@code FAILED} leído
+     * @return {@code true} si pasó a {@code QUEUED}
+     */
+    public boolean requeueFailed(Job requeued, int attemptsWhenRead) {
+        return jdbc.sql("""
+                UPDATE jobs
+                   SET status = 'QUEUED', attempts = 0, finished_at = NULL, updated_at = :updatedAt
+                 WHERE id = :id AND status = 'FAILED' AND attempts = :attempts
+                """)
+                .param("id", requeued.id())
+                .param("updatedAt", utc(requeued.updatedAt()))
+                .param("attempts", attemptsWhenRead)
+                .update() == 1;
+    }
+
+    public void insertRetry(JobRetry retry) {
+        jdbc.sql("""
+                INSERT INTO job_retries (id, job_id, requested_at, attempts, error)
+                VALUES (:id, :jobId, :requestedAt, :attempts, :error)
+                """)
+                .param("id", retry.id())
+                .param("jobId", retry.jobId())
+                .param("requestedAt", utc(retry.requestedAt()))
+                .param("attempts", retry.attempts())
+                .param("error", retry.error())
+                .update();
+    }
+
+    /** Reintentos manuales del trabajo, del más antiguo al más reciente. */
+    public List<JobRetry> findRetries(UUID jobId) {
+        return jdbc.sql("SELECT * FROM job_retries WHERE job_id = :jobId ORDER BY requested_at, id")
+                .param("jobId", jobId)
+                .query((rs, i) -> new JobRetry(rs.getObject("id", UUID.class), rs.getObject("job_id", UUID.class),
+                        rs.getObject("requested_at", OffsetDateTime.class).toInstant(), rs.getInt("attempts"),
+                        rs.getString("error")))
+                .list();
+    }
+
     private static Job map(ResultSet rs, int rowNum) throws SQLException {
         return new Job(
                 rs.getObject("id", UUID.class),

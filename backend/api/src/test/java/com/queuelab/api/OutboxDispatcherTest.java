@@ -104,6 +104,24 @@ class OutboxDispatcherTest {
     }
 
     @Test
+    void manuallyRetriedJobIsPublishedAgainToTheMainQueue() throws Exception {
+        UUID jobId = submit();
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+        admin.purgeQueue(JobMessagingTopology.QUEUE);
+        var repo = new com.queuelab.core.job.JobRepository(jdbc);
+        var running = repo.claim(jobId, Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
+        repo.finishAttempt(running.failed("boom", Instant.now()));
+
+        mvc.perform(post("/api/v1/jobs/{id}/retry", jobId)).andExpect(status().isAccepted());
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+
+        Message republished = rabbit.receive(JobMessagingTopology.QUEUE, 5_000);
+        assertThat(republished).isNotNull();
+        assertThat(JobMessageCodec.decode(republished).jobId()).isEqualTo(jobId);
+        assertThat(rabbit.receive(JobMessagingTopology.DEAD_LETTER_QUEUE, 300)).isNull();
+    }
+
+    @Test
     void deadLetteredEventGoesToTheDeadLetterQueueAndNotToTheMainOne() throws Exception {
         UUID jobId = submit();
         assertThat(dispatcher.dispatchPending()).isEqualTo(1);

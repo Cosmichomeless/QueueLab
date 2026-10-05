@@ -18,6 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import com.queuelab.api.job.IdempotencyConflictException;
 import com.queuelab.api.job.InvalidRequestException;
 import com.queuelab.api.job.JobNotFoundException;
+import com.queuelab.api.job.JobNotRetryableException;
 
 /**
  * Formato único de errores de la API: {@code application/problem+json} (RFC 9457).
@@ -33,6 +34,13 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail jobNotFound(JobNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Trabajo no encontrado");
+        return problem;
+    }
+
+    @ExceptionHandler(JobNotRetryableException.class)
+    ProblemDetail jobNotRetryable(JobNotRetryableException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("El trabajo no se puede reintentar");
         return problem;
     }
 

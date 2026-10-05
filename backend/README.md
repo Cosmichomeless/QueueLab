@@ -100,7 +100,8 @@ y `Job.transitionTo`), que lanza `InvalidJobTransitionException` si no están pe
 | `QUEUED` | `RUNNING` |
 | `RUNNING` | `COMPLETED`, `FAILED`, `RETRYING` |
 | `RETRYING` | `RUNNING` |
-| `COMPLETED`, `FAILED` | _(terminales)_ |
+| `FAILED` | `QUEUED` (solo por reintento manual, ver «Reintento manual») |
+| `COMPLETED` | _(terminal)_ |
 
 `started_at` es la primera vez que el trabajo pasó a `RUNNING` (no cambia en reintentos) y
 `finished_at` se fija al llegar a un estado terminal. `JobRepository.update(job, expectedStatus)`
@@ -114,6 +115,8 @@ procesos no se pisen.
 | `POST /api/v1/jobs` | Crea un trabajo `{"type": "..."}` en `QUEUED`. 201 con el trabajo y `Location`; no espera al procesamiento. Admite `Idempotency-Key` (ver abajo). |
 | `GET /api/v1/jobs/{id}` | Detalle de un trabajo. 404 si no existe. |
 | `GET /api/v1/jobs` | Listado paginado, del más reciente al más antiguo. |
+| `POST /api/v1/jobs/{id}/retry` | Reintento manual de un trabajo `FAILED` (ver «Reintento manual»). 202 con el trabajo en `QUEUED`; 409 si no es elegible. |
+| `GET /api/v1/jobs/{id}/retries` | Historial de reintentos manuales, del más antiguo al más reciente. |
 
 Los errores usan `application/problem+json` (RFC 9457) con `status`, `title`, `detail` e `instance`.
 
@@ -355,6 +358,29 @@ de entrada del trabajo. La misma información se consulta sin tocar la cola con
 `GET /api/v1/jobs/{id}` (`status: FAILED`, `attempts`, `error`) o `GET /api/v1/jobs?status=FAILED`.
 Para inspeccionar la cola: `docker compose exec rabbitmq rabbitmqctl list_queues name messages` o la
 consola de gestión en http://localhost:15672 (`queuelab`/`queuelab`).
+
+### Reintento manual de trabajos fallidos
+
+`POST /api/v1/jobs/{id}/retry` devuelve a la cola un trabajo en `FAILED` (agotado, fallo permanente o
+abandonado) **sin crear otro trabajo**: el `id` es el mismo.
+
+- Solo es elegible `FAILED`. Cualquier otro estado (`QUEUED`, `RUNNING`, `RETRYING`, `COMPLETED`) responde
+  **409** (`El trabajo no se puede reintentar`) sin tocar nada; un id inexistente, 404; uno mal formado, 400.
+- La operación es **atómica y sin duplicados**: un `UPDATE … WHERE status = 'FAILED' AND attempts = :leído`
+  más la fila de historial y el evento `JOB_QUEUED` del outbox se escriben en una sola transacción. Si
+  dos peticiones coinciden, exactamente una gana (202) y la otra recibe 409; no se publica un segundo mensaje.
+- El trabajo pasa a `QUEUED` con `attempts = 0` (presupuesto completo de `max-attempts`) y `finished_at`
+  vacío. `started_at` y el último `error` se conservan hasta que el nuevo intento los sustituya.
+- El mensaje llega al worker por el camino normal (outbox → `OutboxDispatcher` → RabbitMQ). El aviso que
+  la DLQ guardó del fallo anterior permanece como registro; no se retira.
+
+**Historial** (`job_retries`, migración `V11`, borrado en cascada con el trabajo): cada reintento guarda
+cuándo se pidió, cuántos intentos había consumido el ciclo anterior y su último error. Se consulta con
+`GET /api/v1/jobs/{id}/retries`:
+
+```json
+[{"requestedAt":"2026-10-05T10:00:00Z","attempts":3,"error":"El servicio externo no responde"}]
+```
 
 ## Prueba de extremo a extremo (`e2e`)
 

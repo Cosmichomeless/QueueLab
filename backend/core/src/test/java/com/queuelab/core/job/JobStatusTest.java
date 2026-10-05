@@ -15,7 +15,7 @@ class JobStatusTest {
             RUNNING, Set.of(COMPLETED, FAILED, RETRYING),
             RETRYING, Set.of(RUNNING),
             COMPLETED, Set.of(),
-            FAILED, Set.of());
+            FAILED, Set.of(QUEUED));
 
     @Test
     void onlyDocumentedTransitionsAreAllowed() {

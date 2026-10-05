@@ -1,5 +1,6 @@
 package com.queuelab.api.job;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -58,6 +59,23 @@ public class JobController {
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "" + JobService.DEFAULT_PAGE_SIZE) int limit) {
         return service.list(status, cursor, limit);
+    }
+
+    /**
+     * Reintenta a mano un trabajo {@code FAILED}: responde {@code 202} con el trabajo ya en {@code QUEUED}
+     * (se republicará por el outbox). Un trabajo en cualquier otro estado responde {@code 409}.
+     */
+    @PostMapping("/{id}/retry")
+    ResponseEntity<JobResponse> retry(@PathVariable UUID id) {
+        Job job = service.retry(id);
+        var location = ServletUriComponentsBuilder.fromCurrentRequest().replacePath("/api/v1/jobs/{id}").build(id);
+        return ResponseEntity.accepted().location(location).body(JobResponse.from(job));
+    }
+
+    /** Historial de reintentos manuales del trabajo, del más antiguo al más reciente. */
+    @GetMapping("/{id}/retries")
+    List<JobRetryResponse> retries(@PathVariable UUID id) {
+        return service.retries(id).stream().map(JobRetryResponse::from).toList();
     }
 
     @GetMapping("/{id}")

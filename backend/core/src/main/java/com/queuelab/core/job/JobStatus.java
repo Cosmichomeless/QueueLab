@@ -8,11 +8,13 @@ import java.util.Set;
  *
  * <pre>
  * QUEUED → RUNNING → COMPLETED
- *             ↓ ↑
- *          RETRYING      RUNNING → FAILED
+ *    ↑        ↓ ↑
+ *    |     RETRYING      RUNNING → FAILED
+ *    └──────────────────────────────┘ (reintento manual)
  * </pre>
  *
- * {@code COMPLETED} y {@code FAILED} son terminales.
+ * {@code COMPLETED} y {@code FAILED} son terminales: ningún worker los toca. La única salida es el
+ * reintento manual de un {@code FAILED}, que lo devuelve a {@code QUEUED} ({@link Job#requeued}).
  */
 public enum JobStatus {
     QUEUED,
@@ -27,7 +29,8 @@ public enum JobStatus {
             case QUEUED -> EnumSet.of(RUNNING);
             case RUNNING -> EnumSet.of(COMPLETED, FAILED, RETRYING);
             case RETRYING -> EnumSet.of(RUNNING);
-            case COMPLETED, FAILED -> EnumSet.noneOf(JobStatus.class);
+            case FAILED -> EnumSet.of(QUEUED);
+            case COMPLETED -> EnumSet.noneOf(JobStatus.class);
         };
     }
 
@@ -35,7 +38,8 @@ public enum JobStatus {
         return allowedTargets().contains(target);
     }
 
+    /** Estado final del procesamiento automático (no implica que no pueda reintentarse a mano). */
     public boolean isTerminal() {
-        return allowedTargets().isEmpty();
+        return this == COMPLETED || this == FAILED;
     }
 }

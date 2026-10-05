@@ -102,6 +102,15 @@ public record Job(
                 null, truncate(error, ERROR_MAX_LENGTH), attempts);
     }
 
+    /**
+     * {@code FAILED → QUEUED}: reintento manual. Reinicia el contador de intentos (el nuevo intento tiene el
+     * presupuesto completo), quita el fin y conserva el último error hasta que haya un nuevo resultado.
+     */
+    public Job requeued(Instant now) {
+        Job next = transitionTo(JobStatus.QUEUED, now);
+        return new Job(id, type, next.status, createdAt, now, startedAt, null, null, error, 0);
+    }
+
     private static String truncate(String value, int max) {
         return value == null || value.length() <= max ? value : value.substring(0, max);
     }

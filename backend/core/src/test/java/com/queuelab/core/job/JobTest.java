@@ -123,4 +123,30 @@ class JobTest {
         assertThatThrownBy(() -> queued.completed("ok", Instant.now())).isInstanceOf(InvalidJobTransitionException.class);
         assertThatThrownBy(() -> queued.failed("mal", Instant.now())).isInstanceOf(InvalidJobTransitionException.class);
     }
+
+    @Test
+    void requeuedMovesAFailedJobBackToQueuedWithAFreshAttemptBudget() {
+        Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
+        Job failed = new Job(UUID.randomUUID(), "noop", JobStatus.FAILED, t0, t0.plusSeconds(3),
+                t0.plusSeconds(1), t0.plusSeconds(3), null, "boom", 3);
+
+        Job again = failed.requeued(t0.plusSeconds(10));
+
+        assertThat(again.status()).isEqualTo(JobStatus.QUEUED);
+        assertThat(again.attempts()).isZero();
+        assertThat(again.finishedAt()).isNull();
+        assertThat(again.startedAt()).isEqualTo(failed.startedAt());
+        assertThat(again.error()).isEqualTo("boom");
+        assertThat(again.updatedAt()).isEqualTo(t0.plusSeconds(10));
+    }
+
+    @Test
+    void onlyAFailedJobCanBeRequeued() {
+        Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
+        Job queued = Job.queued(UUID.randomUUID(), "noop", t0);
+        Job done = queued.transitionTo(JobStatus.RUNNING, t0.plusSeconds(1)).completed("ok", t0.plusSeconds(2));
+
+        assertThatThrownBy(() -> queued.requeued(t0)).isInstanceOf(InvalidJobTransitionException.class);
+        assertThatThrownBy(() -> done.requeued(t0)).isInstanceOf(InvalidJobTransitionException.class);
+    }
 }
