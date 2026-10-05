@@ -199,3 +199,24 @@ ni trabajo ni evento; si confirma, quedan los dos.
 Un índice parcial (`WHERE published_at IS NULL`) hace barata la consulta de pendientes. La migración
 `V5` crea un evento para los trabajos que ya estuvieran en `QUEUED` antes del outbox, de modo que no
 queda ningún trabajo `QUEUED` sin evento publicable.
+
+### Despacho del outbox a RabbitMQ
+
+`OutboxDispatcher` (API) publica los eventos pendientes en `queuelab.jobs` con la routing key
+`job.queued`, usando *publisher confirms* (`publisher-confirm-type: correlated`) y mensajes
+obligatorios (`mandatory`, `publisher-returns`). `OutboxDispatchScheduler` lo lanza cada segundo.
+
+- **Confirmado** por el broker → `published_at` se rellena y `last_error` se limpia.
+- **Sin confirmar** (RabbitMQ caído, timeout, `nack`, mensaje no enrutable) → el evento sigue pendiente,
+  `attempts` se incrementa y `last_error` guarda el motivo (máx. 500 caracteres, sin datos del trabajo).
+  Si el broker no responde se corta la pasada para no esperar un timeout por evento.
+- Las filas se leen con `FOR UPDATE SKIP LOCKED`: varias instancias de la API no publican el mismo evento.
+- Entrega **al menos una vez**: si el proceso cae justo tras la confirmación, el mensaje se republica.
+  El consumidor debe tolerar duplicados.
+
+| Propiedad | Por defecto | Significado |
+|---|---|---|
+| `queuelab.outbox.dispatch.enabled` | `true` | apaga el planificador (los tests lo desactivan) |
+| `queuelab.outbox.dispatch.interval` | `1s` | pausa entre pasadas |
+| `queuelab.outbox.batch-size` | `50` | eventos por pasada |
+| `queuelab.outbox.confirm-timeout` | `5s` | espera máxima de la confirmación |

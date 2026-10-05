@@ -10,11 +10,23 @@ spring:
     port: ${QUEUELAB_RABBITMQ_PORT:5672}
     username: ${QUEUELAB_RABBITMQ_USER:queuelab}
     password: ${QUEUELAB_RABBITMQ_PASSWORD:}
+    # Sin conexión no hay que esperar el timeout por defecto (60 s) en cada reintento del outbox.
+    connection-timeout: 5s
+    # El broker confirma cada publicación y devuelve las no enrutables: base del despachador del outbox.
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 
 queuelab:
   jobs:
     # Tipos de trabajo que acepta POST /api/v1/jobs.
     types: noop,csv-import,image-resize
+  outbox:
+    dispatch:
+      interval: 1s
+    batch-size: 50
+    confirm-timeout: 5s
 
 management:
   health:

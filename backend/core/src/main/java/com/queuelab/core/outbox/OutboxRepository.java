@@ -2,6 +2,7 @@ package com.queuelab.core.outbox;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -14,6 +15,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * transacción que guarda el trabajo para que ambos se confirmen o se deshagan juntos.
  */
 public class OutboxRepository {
+
+    /** Longitud de la columna {@code last_error}. */
+    private static final int LAST_ERROR_MAX = 500;
 
     private final JdbcClient jdbc;
 
@@ -33,6 +37,37 @@ public class OutboxRepository {
                 .param("createdAt", event.createdAt().atOffset(ZoneOffset.UTC))
                 .param("publishedAt", event.publishedAt() == null ? null : event.publishedAt().atOffset(ZoneOffset.UTC))
                 .param("attempts", event.attempts())
+                .update();
+    }
+
+    /**
+     * Eventos sin publicar, del más antiguo al más reciente. Bloquea las filas ({@code SKIP LOCKED}) hasta el
+     * fin de la transacción en curso, así dos instancias de la API no publican el mismo evento a la vez.
+     * Debe llamarse dentro de una transacción.
+     */
+    public List<OutboxEvent> findPending(int limit) {
+        return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts "
+                        + "FROM outbox_events WHERE published_at IS NULL ORDER BY created_at, id "
+                        + "LIMIT :limit FOR UPDATE SKIP LOCKED")
+                .param("limit", limit)
+                .query(OutboxRepository::map)
+                .list();
+    }
+
+    /** Marca el evento como confirmado por el broker. */
+    public void markPublished(UUID id, Instant at) {
+        jdbc.sql("UPDATE outbox_events SET published_at = :at, last_error = NULL WHERE id = :id")
+                .param("at", at.atOffset(ZoneOffset.UTC))
+                .param("id", id)
+                .update();
+    }
+
+    /** Anota un intento fallido: el evento sigue pendiente y se reintentará. */
+    public void recordFailure(UUID id, String error) {
+        String trimmed = error == null ? null : error.substring(0, Math.min(error.length(), LAST_ERROR_MAX));
+        jdbc.sql("UPDATE outbox_events SET attempts = attempts + 1, last_error = :error WHERE id = :id")
+                .param("error", trimmed)
+                .param("id", id)
                 .update();
     }
 
