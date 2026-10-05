@@ -1,6 +1,10 @@
 package com.queuelab.api.job;
 
+import java.util.UUID;
+
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,5 +29,10 @@ public class JobController {
         Job job = service.submit(request.type());
         var location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").build(job.id());
         return ResponseEntity.created(location).body(JobResponse.from(job));
+    }
+
+    @GetMapping("/{id}")
+    JobResponse get(@PathVariable UUID id) {
+        return JobResponse.from(service.get(id));
     }
 }

@@ -20,6 +20,10 @@ public class JobService {
         this.clock = clock;
     }
 
+    public Job get(UUID id) {
+        return jobs.findById(id).orElseThrow(() -> new JobNotFoundException(id));
+    }
+
     /** Registra el trabajo en {@code QUEUED}; el procesamiento ocurre fuera de la petición. */
     public Job submit(String type) {
         // PostgreSQL guarda microsegundos: así lo devuelto coincide con lo almacenado.
