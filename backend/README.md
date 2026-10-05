@@ -65,3 +65,14 @@ Ejemplo con los servicios locales:
 export QUEUELAB_DB_PASSWORD=queuelab QUEUELAB_RABBITMQ_PASSWORD=queuelab
 java -jar backend/api/target/queuelab-api-0.1.0-SNAPSHOT.jar
 ```
+
+## Migraciones de base de datos (Flyway)
+
+El esquema vive en `backend/core/src/main/resources/db/migration` (`V<n>__<descripcion>.sql`).
+La **API** aplica las migraciones pendientes al arrancar; el worker no las ejecuta.
+
+- Una base vacía aplica `V1__baseline.sql`; en el siguiente arranque Flyway informa
+  `Schema "public" is up to date` y no repite nada.
+- Nunca se edita una migración ya aplicada: los cambios van en una versión nueva.
+- Las pruebas de la API levantan un PostgreSQL desechable con Testcontainers
+  (requieren Docker en marcha).

@@ -9,6 +9,8 @@ import org.springframework.core.env.Environment;
 
 /** Las URLs y credenciales de los servicios se leen de variables de entorno. */
 @SpringBootTest(properties = {
+        "spring.flyway.enabled=false",
+        "management.health.db.enabled=false",
         "QUEUELAB_DB_URL=jdbc:postgresql://db.example:6543/custom",
         "QUEUELAB_DB_USER=db-user",
         "QUEUELAB_DB_PASSWORD=db-secret",

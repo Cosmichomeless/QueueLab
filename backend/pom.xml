@@ -23,6 +23,7 @@
     </properties>
 
     <modules>
+        <module>core</module>
         <module>api</module>
         <module>worker</module>
     </modules>
