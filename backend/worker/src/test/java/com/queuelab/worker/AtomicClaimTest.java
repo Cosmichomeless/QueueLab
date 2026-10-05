@@ -89,7 +89,7 @@ class AtomicClaimTest {
     void onlyOneOfManyConcurrentClaimsWins() throws Exception {
         Job job = storedJob();
 
-        var results = race(() -> jobs.claim(job.id(), Instant.now()));
+        var results = race(() -> jobs.claim(job.id(), Instant.now(), Instant.now().plusSeconds(60)));
 
         assertThat(results.stream().filter(java.util.Optional::isPresent)).hasSize(1);
         Job stored = jobs.findById(job.id()).orElseThrow();
@@ -101,14 +101,14 @@ class AtomicClaimTest {
     @Test
     void claimOnlyAppliesToQueuedJobs() {
         Job job = storedJob();
-        Job claimed = jobs.claim(job.id(), Instant.now()).orElseThrow();
+        Job claimed = jobs.claim(job.id(), Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
         assertThat(claimed.status()).isEqualTo(JobStatus.RUNNING);
         assertThat(claimed.attempts()).isEqualTo(1);
 
-        assertThat(jobs.claim(job.id(), Instant.now())).isEmpty(); // ya RUNNING
+        assertThat(jobs.claim(job.id(), Instant.now(), Instant.now().plusSeconds(60))).isEmpty(); // ya RUNNING
         jobs.finishAttempt(claimed.completed("ok", Instant.now()));
-        assertThat(jobs.claim(job.id(), Instant.now())).isEmpty(); // ya COMPLETED
-        assertThat(jobs.claim(UUID.randomUUID(), Instant.now())).isEmpty(); // inexistente
+        assertThat(jobs.claim(job.id(), Instant.now(), Instant.now().plusSeconds(60))).isEmpty(); // ya COMPLETED
+        assertThat(jobs.claim(UUID.randomUUID(), Instant.now(), Instant.now().plusSeconds(60))).isEmpty(); // inexistente
         assertThat(jobs.findById(job.id()).orElseThrow().attempts()).isEqualTo(1);
     }
 
@@ -150,10 +150,10 @@ class AtomicClaimTest {
     @Test
     void staleAttemptCannotOverwriteANewerOne() {
         Job job = storedJob();
-        Job attempt1 = jobs.claim(job.id(), Instant.now()).orElseThrow();
+        Job attempt1 = jobs.claim(job.id(), Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
         // Simula que el intento 1 fue relevado: vuelve a QUEUED y otro worker reclama el intento 2.
         jdbc.sql("UPDATE jobs SET status = 'QUEUED' WHERE id = :id").param("id", job.id()).update();
-        Job attempt2 = jobs.claim(job.id(), Instant.now()).orElseThrow();
+        Job attempt2 = jobs.claim(job.id(), Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
         assertThat(attempt2.attempts()).isEqualTo(2);
 
         assertThat(jobs.finishAttempt(attempt1.completed("viejo", Instant.now()))).isFalse();

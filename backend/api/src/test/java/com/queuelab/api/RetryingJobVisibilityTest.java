@@ -35,7 +35,7 @@ class RetryingJobVisibilityTest {
     void retryingJobShowsItsAttemptAndLastError() throws Exception {
         Job queued = Job.queued(UUID.randomUUID(), "csv-import", Instant.now());
         jobs.insert(queued);
-        Job running = jobs.claim(queued.id(), Instant.now()).orElseThrow();
+        Job running = jobs.claim(queued.id(), Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
         jobs.finishAttempt(running.retrying("El servicio externo no responde", Instant.now()));
 
         mvc.perform(get("/api/v1/jobs/" + queued.id()))
@@ -59,7 +59,7 @@ class RetryingJobVisibilityTest {
     void exhaustedJobShowsCauseAndAttemptsAndNeverAnyInput() throws Exception {
         Job queued = Job.queued(UUID.randomUUID(), "csv-import", Instant.now());
         jobs.insert(queued);
-        Job running = jobs.claim(queued.id(), Instant.now()).orElseThrow();
+        Job running = jobs.claim(queued.id(), Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
         jobs.finishAttempt(running.failed("El servicio externo no responde", Instant.now()));
 
         mvc.perform(get("/api/v1/jobs/" + queued.id()))

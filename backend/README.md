@@ -302,6 +302,39 @@ La espera tras el intento *n* es `initial-delay × multiplier^(n-1)`, acotada po
 Con los valores por defecto: intento 1 → 5 s → intento 2 → 10 s → intento 3 → `FAILED`.
 La API expone `status` (`RETRYING`) y `attempts` (nº de intento en curso o del último realizado).
 
+### Recuperación de trabajos interrumpidos (lease)
+
+Si un worker muere (o se queda colgado) tras reclamar un trabajo, este quedaría en `RUNNING` para
+siempre: el mensaje ya se confirmó y nadie volvería a tomarlo. Para detectarlo, cada trabajo en
+ejecución tiene un **lease** (`jobs.lease_expires_at`, migración `V10`):
+
+- `claim` fija el lease a `ahora + lease.duration`; `finishAttempt` lo borra (`NULL`).
+- Mientras `executor.execute` corre, el worker lo **renueva** cada `duration / 3` (latido en un hilo
+  daemon, `JobRepository.renewLease`, que exige `RUNNING` y el mismo intento). Un trabajo largo pero vivo
+  nunca vence; caben dos latidos perdidos antes de que venza.
+- `AbandonedJobRecoverer` (lanzado por `RecoveryScheduler` cada `recovery.interval`) busca los `RUNNING`
+  con `lease_expires_at <= now()` (índice parcial `jobs_running_lease_idx`) y aplica la **política de
+  reintentos**: el intento perdido cuenta, así que si quedan intentos pasa a `RETRYING` con la espera
+  exponencial y un evento `JOB_QUEUED` diferido en el outbox; si no quedan, a `FAILED` con un
+  `JOB_DEAD_LETTERED` (misma transacción). El `error` es «El worker dejó de responder durante la ejecución».
+- La escritura (`finishExpiredAttempt`) exige `RUNNING`, el mismo intento **y que el lease siga vencido**:
+  si el worker renovó entre la lectura y la escritura, o dos instancias recuperan a la vez, solo una
+  escritura prospera y **no hay reintentos duplicados**. Un worker rezagado que despierta después no puede
+  cerrar ni renovar un intento ya relevado (`attempts` distinto).
+- Nunca se toca un trabajo cuyo lease está vigente.
+
+| Propiedad | Por defecto | Significado |
+|---|---|---|
+| `queuelab.worker.lease.duration` | `2m` | Vida del lease; fija cuánto tarda en detectarse una caída |
+| `queuelab.worker.recovery.interval` | `30s` | Cada cuánto busca trabajos abandonados |
+| `queuelab.worker.recovery.batch-size` | `50` | Máximo recuperado por pasada |
+| `queuelab.worker.recovery.enabled` | `true` | `false` apaga el recuperador (los tests lo llaman a mano con `recoverOnce()`) |
+
+`V10` también fija `lease_expires_at = now()` a los `RUNNING` ya existentes, de modo que los
+huérfanos anteriores a la migración se recuperan en la primera pasada. Limitación: con `lease.duration`
+menor que lo que tarda un latido en llegar (GC largo, red cortada) un trabajo vivo puede recuperarse y
+ejecutarse dos veces; por eso la duración por defecto es holgada y los ejecutores deben ser idempotentes.
+
 ### Cola dead-letter: trabajos con reintentos agotados
 
 Cuando un trabajo agota `max-attempts`, el worker lo deja en `FAILED` y, **en la misma transacción**,

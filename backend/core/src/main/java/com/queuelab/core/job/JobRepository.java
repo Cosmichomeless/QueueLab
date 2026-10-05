@@ -133,19 +133,23 @@ public class JobRepository {
      * suma un intento. PostgreSQL serializa los {@code UPDATE} sobre la misma fila y el segundo
      * reevalúa {@code status = 'QUEUED'} ya sin éxito, así que solo un worker recibe el trabajo.
      *
+     * <p>El reclamo abre el lease: hasta {@code leaseExpiresAt} el trabajo se considera en manos de este
+     * worker, que debe renovarlo ({@link #renewLease}) mientras siga ejecutándolo.
+     *
      * @return el trabajo ya en {@code RUNNING} con su número de intento, o vacío si no estaba esperando
      *         ejecución (otro worker lo reclamó antes, o ya terminó)
      */
-    public Optional<Job> claim(UUID id, java.time.Instant now) {
+    public Optional<Job> claim(UUID id, java.time.Instant now, java.time.Instant leaseExpiresAt) {
         return jdbc.sql("""
                 UPDATE jobs
                    SET status = 'RUNNING', attempts = attempts + 1, updated_at = :now,
-                       started_at = COALESCE(started_at, :now)
+                       started_at = COALESCE(started_at, :now), lease_expires_at = :leaseExpiresAt
                  WHERE id = :id AND status IN ('QUEUED', 'RETRYING')
              RETURNING *
                 """)
                 .param("id", id)
                 .param("now", utc(now))
+                .param("leaseExpiresAt", utc(leaseExpiresAt))
                 .query(JobRepository::map)
                 .optional();
     }
@@ -162,7 +166,7 @@ public class JobRepository {
         return jdbc.sql("""
                 UPDATE jobs
                    SET status = :status, updated_at = :updatedAt, finished_at = :finishedAt,
-                       result = :result, error = :error
+                       result = :result, error = :error, lease_expires_at = NULL
                  WHERE id = :id AND status = 'RUNNING' AND attempts = :attempts
                 """)
                 .param("id", finished.id())
@@ -172,6 +176,65 @@ public class JobRepository {
                 .param("result", finished.result())
                 .param("error", finished.error())
                 .param("attempts", finished.attempts())
+                .update() == 1;
+    }
+
+    /**
+     * Prolonga el lease del intento en curso hasta {@code leaseExpiresAt}. Es el latido con el que el
+     * worker demuestra que sigue vivo.
+     *
+     * @return {@code true} si se renovó; {@code false} si el intento ya no está en curso (el trabajo fue
+     *         recuperado por vencimiento, o terminó)
+     */
+    public boolean renewLease(UUID id, int attempts, java.time.Instant now, java.time.Instant leaseExpiresAt) {
+        return jdbc.sql("""
+                UPDATE jobs
+                   SET lease_expires_at = :leaseExpiresAt, updated_at = :now
+                 WHERE id = :id AND status = 'RUNNING' AND attempts = :attempts
+                """)
+                .param("id", id)
+                .param("attempts", attempts)
+                .param("now", utc(now))
+                .param("leaseExpiresAt", utc(leaseExpiresAt))
+                .update() == 1;
+    }
+
+    /** Trabajos {@code RUNNING} cuyo lease ya venció a {@code now}, los más antiguos primero. */
+    public List<Job> findExpired(java.time.Instant now, int limit) {
+        return jdbc.sql("""
+                SELECT * FROM jobs
+                 WHERE status = 'RUNNING' AND lease_expires_at <= :now
+                 ORDER BY lease_expires_at, id
+                 LIMIT :limit
+                """)
+                .param("now", utc(now))
+                .param("limit", limit)
+                .query(JobRepository::map)
+                .list();
+    }
+
+    /**
+     * Como {@link #finishAttempt}, pero para el recuperador: además exige que el lease <b>siga vencido</b>
+     * a {@code now}. Si el worker renovó el lease entre que se listó el trabajo y se llegó aquí, el
+     * trabajo sigue activo y no se toca.
+     *
+     * @return {@code true} si se guardó
+     */
+    public boolean finishExpiredAttempt(Job finished, java.time.Instant now) {
+        return jdbc.sql("""
+                UPDATE jobs
+                   SET status = :status, updated_at = :updatedAt, finished_at = :finishedAt,
+                       result = :result, error = :error, lease_expires_at = NULL
+                 WHERE id = :id AND status = 'RUNNING' AND attempts = :attempts AND lease_expires_at <= :now
+                """)
+                .param("id", finished.id())
+                .param("status", finished.status().name())
+                .param("updatedAt", utc(finished.updatedAt()))
+                .param("finishedAt", utc(finished.finishedAt()))
+                .param("result", finished.result())
+                .param("error", finished.error())
+                .param("attempts", finished.attempts())
+                .param("now", utc(now))
                 .update() == 1;
     }
 

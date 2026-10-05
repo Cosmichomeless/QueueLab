@@ -109,7 +109,7 @@ class OutboxDispatcherTest {
         assertThat(dispatcher.dispatchPending()).isEqualTo(1);
         admin.purgeQueue(JobMessagingTopology.QUEUE);
         var repo = new com.queuelab.core.job.JobRepository(jdbc);
-        var running = repo.claim(jobId, Instant.now()).orElseThrow();
+        var running = repo.claim(jobId, Instant.now(), Instant.now().plusSeconds(60)).orElseThrow();
         var failed = running.failed("El servicio externo no responde", Instant.now());
         repo.finishAttempt(failed);
         outbox.insert(OutboxEvent.deadLettered(failed, Instant.now()));
