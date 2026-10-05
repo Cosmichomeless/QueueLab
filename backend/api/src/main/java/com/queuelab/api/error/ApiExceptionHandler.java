@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.queuelab.api.job.InvalidRequestException;
 import com.queuelab.api.job.JobNotFoundException;
 
 /**
@@ -19,6 +20,13 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail jobNotFound(JobNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Trabajo no encontrado");
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidRequestException.class)
+    ProblemDetail invalidRequest(InvalidRequestException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Petición no válida");
         return problem;
     }
 }

@@ -4,6 +4,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,6 +39,34 @@ public class JobRepository {
                 .param("id", id)
                 .query(JobRepository::map)
                 .optional();
+    }
+
+    /**
+     * Página de trabajos, del más reciente al más antiguo. El orden es total
+     * ({@code created_at DESC, id DESC}), así que paginar con el cursor del último elemento
+     * no repite ni se salta trabajos aunque se creen otros mientras tanto.
+     *
+     * @param status filtro por estado, o {@code null} para todos
+     * @param after  cursor del último trabajo ya visto, o {@code null} para empezar
+     */
+    public List<Job> findPage(JobStatus status, JobCursor after, int limit) {
+        var sql = new StringBuilder("SELECT * FROM jobs WHERE true");
+        if (status != null) {
+            sql.append(" AND status = :status");
+        }
+        if (after != null) {
+            sql.append(" AND (created_at, id) < (:afterCreatedAt, :afterId)");
+        }
+        sql.append(" ORDER BY created_at DESC, id DESC LIMIT :limit");
+
+        var statement = jdbc.sql(sql.toString()).param("limit", limit);
+        if (status != null) {
+            statement = statement.param("status", status.name());
+        }
+        if (after != null) {
+            statement = statement.param("afterCreatedAt", utc(after.createdAt())).param("afterId", after.id());
+        }
+        return statement.query(JobRepository::map).list();
     }
 
     /**

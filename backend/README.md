@@ -106,3 +106,24 @@ y `Job.transitionTo`), que lanza `InvalidJobTransitionException` si no están pe
 `finished_at` se fija al llegar a un estado terminal. `JobRepository.update(job, expectedStatus)`
 guarda el cambio solo si el estado en base de datos sigue siendo el esperado, para que dos
 procesos no se pisen.
+
+## API de trabajos
+
+| Método y ruta | Descripción |
+|---|---|
+| `POST /api/v1/jobs` | Crea un trabajo `{"type": "..."}` en `QUEUED`. 201 con el trabajo y `Location`; no espera al procesamiento. |
+| `GET /api/v1/jobs/{id}` | Detalle de un trabajo. 404 si no existe. |
+| `GET /api/v1/jobs` | Listado paginado, del más reciente al más antiguo. |
+
+Los errores usan `application/problem+json` (RFC 9457) con `status`, `title`, `detail` e `instance`.
+
+### Listado paginado
+
+Parámetros opcionales: `status` (`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `RETRYING`),
+`limit` (1–100, por defecto 20) y `cursor`. La respuesta es
+`{"items": [...], "nextCursor": "..."}`; `nextCursor` es `null` en la última página y, si no,
+se envía como `cursor` para pedir la siguiente.
+
+La paginación es **por cursor**, no por offset: el orden es total (`created_at` descendente y
+`id` como desempate), así que no se repiten ni se saltan trabajos aunque se creen otros mientras
+el cliente pagina. El cursor es opaco; un cursor inválido da 400.
