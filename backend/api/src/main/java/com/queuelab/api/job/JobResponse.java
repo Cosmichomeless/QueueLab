@@ -16,10 +16,11 @@ public record JobResponse(
         Instant startedAt,
         Instant finishedAt,
         String result,
-        String error) {
+        String error,
+        int attempts) {
 
     public static JobResponse from(Job job) {
         return new JobResponse(job.id(), job.type(), job.status(), job.createdAt(), job.updatedAt(),
-                job.startedAt(), job.finishedAt(), job.result(), job.error());
+                job.startedAt(), job.finishedAt(), job.result(), job.error(), job.attempts());
     }
 }

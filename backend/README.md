@@ -268,10 +268,39 @@ El worker (`backend/worker`) consume `queuelab.jobs.queued` con un `@RabbitListe
 `GET /api/v1/jobs/{id}` ya refleja estos cambios porque la API lee de la misma tabla: `status`,
 `startedAt`, `finishedAt`, `result` y `error` (`null` mientras no apliquen). La migración `V6` añade las
 columnas `result` y `error`; `V8` añade `attempts` (intentos reclamados, 0 hasta que un worker toma el
-trabajo).
+trabajo) y `V9` `outbox_events.available_at` (publicación diferida).
 
-El worker solo **lee** de PostgreSQL con el esquema que migra la API (no incluye Flyway; los tests lo
+El worker solo **escribe** en `jobs` y `outbox_events`, con el esquema que migra la API (no incluye Flyway; los tests lo
 crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.
+
+### Reintentos con espera exponencial
+
+Solo se reintenta lo que el ejecutor declara **transitorio** lanzando `TransientJobException`
+(subclase de `JobExecutionException`). Un `JobExecutionException` corriente es permanente y cualquier
+otra excepción es un error inesperado: ambos acaban en `FAILED` en el primer intento, así que un fallo
+permanente nunca entra en bucle.
+
+Ante un fallo transitorio, `JobProcessor`:
+
+1. Si quedan intentos (`attempts < max-attempts`): en **una transacción** pasa el trabajo a `RETRYING`
+   (conserva el resumen del último `error`, `finished_at` sigue vacío) e inserta un evento
+   `JOB_QUEUED` en el outbox con `available_at = ahora + espera`. El dispatcher de la API no
+   publica un evento hasta que `available_at` vence (`V9`), y el worker reclama el trabajo desde
+   `RETRYING` como lo haría desde `QUEUED`.
+2. Si ya no quedan: `FAILED` con el último error y sin evento nuevo.
+
+La espera tras el intento *n* es `initial-delay × multiplier^(n-1)`, acotada por `max-delay`
+(sin jitter). Configuración del worker:
+
+| Propiedad | Por defecto | Significado |
+|---|---|---|
+| `queuelab.worker.retry.max-attempts` | `3` | Ejecuciones totales, la primera incluida |
+| `queuelab.worker.retry.initial-delay` | `5s` | Espera tras el primer fallo |
+| `queuelab.worker.retry.multiplier` | `2.0` | Factor de crecimiento (≥ 1) |
+| `queuelab.worker.retry.max-delay` | `5m` | Tope de la espera |
+
+Con los valores por defecto: intento 1 → 5 s → intento 2 → 10 s → intento 3 → `FAILED`.
+La API expone `status` (`RETRYING`) y `attempts` (nº de intento en curso o del último realizado).
 
 ## Prueba de extremo a extremo (`e2e`)
 

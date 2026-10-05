@@ -11,7 +11,8 @@ import java.util.UUID;
  * @param startedAt  primera vez que pasó a {@code RUNNING} (no cambia en reintentos)
  * @param finishedAt momento en que llegó a un estado terminal
  * @param result     resumen del resultado de un trabajo {@code COMPLETED}; {@code null} en el resto
- * @param error      resumen del error de un trabajo {@code FAILED}; nunca lleva trazas ni datos sensibles
+ * @param error      resumen del error de un trabajo {@code FAILED} o del último intento fallido de uno
+ *                   {@code RETRYING}; nunca lleva trazas ni datos sensibles
  * @param attempts   intentos de ejecución reclamados por un worker (0 mientras nadie lo ha tomado)
  */
 public record Job(
@@ -82,6 +83,16 @@ public record Job(
         Job done = transitionTo(JobStatus.COMPLETED, now);
         return new Job(id, type, done.status, createdAt, now, done.startedAt, done.finishedAt,
                 truncate(result, RESULT_MAX_LENGTH), null, attempts);
+    }
+
+    /**
+     * {@code RUNNING → RETRYING}: el intento falló por una causa transitoria y habrá otro. Conserva el
+     * resumen del último error (se recorta a {@link #ERROR_MAX_LENGTH}) y no marca fin.
+     */
+    public Job retrying(String error, Instant now) {
+        Job next = transitionTo(JobStatus.RETRYING, now);
+        return new Job(id, type, next.status, createdAt, now, next.startedAt, null,
+                null, truncate(error, ERROR_MAX_LENGTH), attempts);
     }
 
     /** {@code RUNNING → FAILED} guardando un resumen del error (se recorta a {@link #ERROR_MAX_LENGTH}). */

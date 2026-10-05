@@ -128,19 +128,20 @@ public class JobRepository {
     }
 
     /**
-     * Reclama el trabajo para ejecutarlo: en <b>una sola sentencia</b> pasa {@code QUEUED → RUNNING} y
+     * Reclama el trabajo para ejecutarlo: en <b>una sola sentencia</b> pasa {@code QUEUED} o
+     * {@code RETRYING} a {@code RUNNING} y
      * suma un intento. PostgreSQL serializa los {@code UPDATE} sobre la misma fila y el segundo
      * reevalúa {@code status = 'QUEUED'} ya sin éxito, así que solo un worker recibe el trabajo.
      *
-     * @return el trabajo ya en {@code RUNNING} con su número de intento, o vacío si no estaba en
-     *         {@code QUEUED} (otro worker lo reclamó antes, o ya terminó)
+     * @return el trabajo ya en {@code RUNNING} con su número de intento, o vacío si no estaba esperando
+     *         ejecución (otro worker lo reclamó antes, o ya terminó)
      */
     public Optional<Job> claim(UUID id, java.time.Instant now) {
         return jdbc.sql("""
                 UPDATE jobs
                    SET status = 'RUNNING', attempts = attempts + 1, updated_at = :now,
                        started_at = COALESCE(started_at, :now)
-                 WHERE id = :id AND status = 'QUEUED'
+                 WHERE id = :id AND status IN ('QUEUED', 'RETRYING')
              RETURNING *
                 """)
                 .param("id", id)
@@ -150,7 +151,8 @@ public class JobRepository {
     }
 
     /**
-     * Cierra un intento: guarda el estado final solo si el trabajo sigue en {@code RUNNING} <b>y</b> en
+     * Cierra un intento: guarda el estado resultante ({@code COMPLETED}, {@code FAILED} o {@code RETRYING})
+     * solo si el trabajo sigue en {@code RUNNING} <b>y</b> en
      * el mismo intento ({@code finished.attempts()}). Un worker rezagado, cuyo intento ya fue relevado,
      * no pisa el resultado del nuevo.
      *

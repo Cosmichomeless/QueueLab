@@ -26,10 +26,22 @@ public class OutboxRepository {
     }
 
     public void insert(OutboxEvent event) {
+        insert(event, null);
+    }
+
+    /**
+     * Inserta el evento para que no se publique hasta {@code availableAt} ({@code null}: de inmediato).
+     * Es lo que usa el worker para programar un reintento con espera, dentro de la misma transacción
+     * que marca el trabajo como {@code RETRYING}.
+     */
+    public void insert(OutboxEvent event, Instant availableAt) {
         jdbc.sql("""
-                INSERT INTO outbox_events (id, job_id, event_type, payload, created_at, published_at, attempts)
-                VALUES (:id, :jobId, :eventType, CAST(:payload AS jsonb), :createdAt, :publishedAt, :attempts)
+                INSERT INTO outbox_events (id, job_id, event_type, payload, created_at, published_at, attempts,
+                                           available_at)
+                VALUES (:id, :jobId, :eventType, CAST(:payload AS jsonb), :createdAt, :publishedAt, :attempts,
+                        :availableAt)
                 """)
+                .param("availableAt", availableAt == null ? null : availableAt.atOffset(ZoneOffset.UTC))
                 .param("id", event.id())
                 .param("jobId", event.jobId())
                 .param("eventType", event.eventType())
@@ -41,13 +53,15 @@ public class OutboxRepository {
     }
 
     /**
-     * Eventos sin publicar, del más antiguo al más reciente. Bloquea las filas ({@code SKIP LOCKED}) hasta el
+     * Eventos sin publicar y ya disponibles ({@code available_at} vacío o vencido), del más antiguo al más
+     * reciente. Bloquea las filas ({@code SKIP LOCKED}) hasta el
      * fin de la transacción en curso, así dos instancias de la API no publican el mismo evento a la vez.
      * Debe llamarse dentro de una transacción.
      */
     public List<OutboxEvent> findPending(int limit) {
         return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts "
-                        + "FROM outbox_events WHERE published_at IS NULL ORDER BY created_at, id "
+                        + "FROM outbox_events WHERE published_at IS NULL "
+                        + "AND (available_at IS NULL OR available_at <= now()) ORDER BY created_at, id "
                         + "LIMIT :limit FOR UPDATE SKIP LOCKED")
                 .param("limit", limit)
                 .query(OutboxRepository::map)

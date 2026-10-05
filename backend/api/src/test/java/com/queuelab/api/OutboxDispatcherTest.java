@@ -6,6 +6,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -77,6 +79,27 @@ class OutboxDispatcherTest {
 
     private OutboxEvent eventOf(UUID jobId) {
         return outbox.findByJobId(jobId).getFirst();
+    }
+
+    @Test
+    void delayedEventIsNotPublishedUntilItsAvailableAtPasses() throws Exception {
+        UUID jobId = submit();
+        // El evento inicial se publica; luego programamos un reintento en el futuro y otro ya vencido.
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+        var job = new com.queuelab.core.job.JobRepository(jdbc).findById(jobId).orElseThrow();
+        Instant now = Instant.now();
+        outbox.insert(OutboxEvent.jobQueued(job, now), now.plusSeconds(3600));
+        assertThat(dispatcher.dispatchPending()).isZero();
+
+        outbox.insert(OutboxEvent.jobQueued(job, now), now.minusSeconds(1));
+        assertThat(dispatcher.dispatchPending()).isEqualTo(1);
+
+        List<OutboxEvent> events = outbox.findByJobId(jobId);
+        assertThat(events).hasSize(3);
+        assertThat(events.stream().filter(OutboxEvent::isPublished)).hasSize(2);
+        // El que sigue pendiente es justo el de espera futura.
+        assertThat(jdbc.sql("SELECT count(*) FROM outbox_events WHERE job_id = :id AND published_at IS NULL "
+                + "AND available_at > now()").param("id", jobId).query(Long.class).single()).isEqualTo(1);
     }
 
     @Test
