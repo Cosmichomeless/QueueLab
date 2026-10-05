@@ -22,12 +22,21 @@ public final class JobMessageCodec {
     private JobMessageCodec() {
     }
 
-    /** Mensaje persistente, {@code application/json}, listo para publicar. */
-    public static Message encode(JobMessage message) {
-        String body = JSON.createObjectNode()
+    /** Cuerpo JSON del mensaje; también es lo que se guarda en el outbox. */
+    public static String toJson(JobMessage message) {
+        return JSON.createObjectNode()
                 .put("version", message.version())
                 .put("jobId", message.jobId().toString())
                 .toString();
+    }
+
+    /** Mensaje persistente, {@code application/json}, listo para publicar. */
+    public static Message encode(JobMessage message) {
+        return encodeJson(toJson(message));
+    }
+
+    /** Como {@link #encode(JobMessage)}, a partir de un cuerpo ya serializado (el del outbox). */
+    public static Message encodeJson(String body) {
         return MessageBuilder.withBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .setContentEncoding("UTF-8")

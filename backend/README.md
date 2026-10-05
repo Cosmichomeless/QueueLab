@@ -178,3 +178,24 @@ indicador de salud de RabbitMQ está desactivado.
 
 Un mensaje rechazado sin reencolar (p. ej. uno malformado) pasa a `queuelab.jobs.queued.dlq` en vez de
 bloquear la cola principal.
+
+## Outbox transaccional
+
+Publicar en RabbitMQ y escribir en PostgreSQL no pueden compartir transacción. Para no perder
+trabajos ni publicar fantasmas, `POST /api/v1/jobs` guarda **en la misma transacción** el trabajo
+(`jobs`) y un evento `JOB_QUEUED` en la tabla `outbox_events` (migración `V4`). Si algo falla, no queda
+ni trabajo ni evento; si confirma, quedan los dos.
+
+| Columna | Significado |
+|---|---|
+| `id` | identificador del evento |
+| `job_id` | trabajo al que pertenece (FK con `ON DELETE CASCADE`) |
+| `event_type` | `JOB_QUEUED` |
+| `payload` | `jsonb` con el contrato de `JobMessage` (`{"version":1,"jobId":"<uuid>"}`) |
+| `created_at` | cuándo se creó |
+| `published_at` | `NULL` = pendiente de publicar; con valor = ya confirmado por el broker |
+| `attempts`, `last_error` | reintentos y último error (los rellenará el despachador, #16) |
+
+Un índice parcial (`WHERE published_at IS NULL`) hace barata la consulta de pendientes. La migración
+`V5` crea un evento para los trabajos que ya estuvieran en `QUEUED` antes del outbox, de modo que no
+queda ningún trabajo `QUEUED` sin evento publicable.

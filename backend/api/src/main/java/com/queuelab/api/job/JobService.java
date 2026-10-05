@@ -6,21 +6,26 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.queuelab.core.job.Job;
 import com.queuelab.core.job.JobCursor;
 import com.queuelab.core.job.JobRepository;
 import com.queuelab.core.job.JobStatus;
+import com.queuelab.core.outbox.OutboxEvent;
+import com.queuelab.core.outbox.OutboxRepository;
 
 @Service
 public class JobService {
 
     private final JobRepository jobs;
     private final Clock clock;
+    private final OutboxRepository outbox;
     private final JobTypeValidator typeValidator;
 
-    public JobService(JobRepository jobs, Clock clock, JobTypeValidator typeValidator) {
+    public JobService(JobRepository jobs, OutboxRepository outbox, Clock clock, JobTypeValidator typeValidator) {
         this.jobs = jobs;
+        this.outbox = outbox;
         this.clock = clock;
         this.typeValidator = typeValidator;
     }
@@ -48,12 +53,18 @@ public class JobService {
         return new JobPage(page.stream().map(JobResponse::from).toList(), next);
     }
 
-    /** Registra el trabajo en {@code QUEUED}; el procesamiento ocurre fuera de la petición. */
+    /**
+     * Registra el trabajo en {@code QUEUED} y su evento de outbox en una sola transacción: o se
+     * guardan los dos o ninguno. La publicación en RabbitMQ y el procesamiento ocurren fuera de la
+     * petición.
+     */
+    @Transactional
     public Job submit(String type) {
         typeValidator.validate(type);
         // PostgreSQL guarda microsegundos: así lo devuelto coincide con lo almacenado.
         Job job = Job.queued(UUID.randomUUID(), type, clock.instant().truncatedTo(ChronoUnit.MICROS));
         jobs.insert(job);
+        outbox.insert(OutboxEvent.jobQueued(job, job.createdAt()));
         return job;
     }
 }
