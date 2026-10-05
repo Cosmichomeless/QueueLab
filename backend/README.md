@@ -111,7 +111,7 @@ procesos no se pisen.
 
 | Método y ruta | Descripción |
 |---|---|
-| `POST /api/v1/jobs` | Crea un trabajo `{"type": "..."}` en `QUEUED`. 201 con el trabajo y `Location`; no espera al procesamiento. |
+| `POST /api/v1/jobs` | Crea un trabajo `{"type": "..."}` en `QUEUED`. 201 con el trabajo y `Location`; no espera al procesamiento. Admite `Idempotency-Key` (ver abajo). |
 | `GET /api/v1/jobs/{id}` | Detalle de un trabajo. 404 si no existe. |
 | `GET /api/v1/jobs` | Listado paginado, del más reciente al más antiguo. |
 
@@ -129,6 +129,8 @@ debe ser uno de los tipos conocidos, que se configuran en `queuelab.jobs.types` 
 | Cuerpo ausente o JSON ilegible | 400, sin reflejar el mensaje del parser |
 | Id, `status` o `limit` con formato incorrecto | 400 indicando el parámetro |
 | Ruta inexistente, método o `Content-Type` no admitidos | 404 / 405 / 415 con el mismo formato |
+| `Idempotency-Key` vacía, de más de 255 caracteres o con espacios/no ASCII | 400 indicando la cabecera |
+| `Idempotency-Key` ya usada con otra carga | 409 «Conflicto de idempotencia» |
 | Trabajo inexistente | 404 «Trabajo no encontrado» |
 | Fallo no previsto | 500 «Error interno» genérico; la traza solo se escribe en el log |
 
@@ -142,6 +144,24 @@ se envía como `cursor` para pedir la siguiente.
 La paginación es **por cursor**, no por offset: el orden es total (`created_at` descendente y
 `id` como desempate), así que no se repiten ni se saltan trabajos aunque se creen otros mientras
 el cliente pagina. El cursor es opaco; un cursor inválido da 400.
+
+### Envío idempotente (`Idempotency-Key`)
+
+`POST /api/v1/jobs` acepta la cabecera opcional `Idempotency-Key` (1–255 caracteres ASCII
+imprimibles, sin espacios) para que un cliente pueda reintentar el envío sin duplicar trabajo:
+
+- **Primera petición con la clave**: crea el trabajo y su evento de outbox, 201.
+- **Misma clave y misma carga**: no crea nada y devuelve el mismo trabajo con su estado actual,
+  `200`, `Location` y la cabecera `Idempotent-Replayed: true`.
+- **Misma clave con otra carga**: `409` «Conflicto de idempotencia»; no se crea ningún trabajo.
+- **Sin cabecera**: cada petición crea un trabajo, como antes.
+
+La clave tiene alcance global (no hay usuarios todavía). Se guarda en `jobs.idempotency_key`
+junto con una huella SHA-256 de la carga (`request_fingerprint`, migración V7); un índice único
+parcial hace que dos peticiones simultáneas con la misma clave produzcan un solo trabajo
+(`INSERT ... ON CONFLICT DO NOTHING` y relectura del ganador). Hoy la huella cubre solo `type`;
+la subida de CSV (#29) añadirá el hash del archivo. La validación del cuerpo va antes que la
+búsqueda de la clave.
 
 ## Pruebas del ciclo de vida
 

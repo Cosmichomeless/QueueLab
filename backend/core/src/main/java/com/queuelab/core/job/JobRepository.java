@@ -34,6 +34,39 @@ public class JobRepository {
                 .update();
     }
 
+    /**
+     * Inserta el trabajo con su clave de idempotencia salvo que la clave ya exista. La comprobación es
+     * atómica ({@code ON CONFLICT DO NOTHING} sobre el índice único), así que dos peticiones simultáneas
+     * con la misma clave nunca crean dos trabajos y la transacción no se aborta.
+     *
+     * @return {@code true} si se insertó; {@code false} si la clave ya estaba usada
+     */
+    public boolean insertIfKeyAbsent(Job job, String idempotencyKey, String fingerprint) {
+        return jdbc.sql("""
+                INSERT INTO jobs (id, type, status, created_at, updated_at, started_at, finished_at,
+                                  idempotency_key, request_fingerprint)
+                VALUES (:id, :type, :status, :createdAt, :updatedAt, :startedAt, :finishedAt, :key, :fingerprint)
+                ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+                """)
+                .param("id", job.id())
+                .param("type", job.type())
+                .param("status", job.status().name())
+                .param("createdAt", utc(job.createdAt()))
+                .param("updatedAt", utc(job.updatedAt()))
+                .param("startedAt", utc(job.startedAt()))
+                .param("finishedAt", utc(job.finishedAt()))
+                .param("key", idempotencyKey)
+                .param("fingerprint", fingerprint)
+                .update() == 1;
+    }
+
+    public Optional<StoredSubmission> findByIdempotencyKey(String idempotencyKey) {
+        return jdbc.sql("SELECT * FROM jobs WHERE idempotency_key = :key")
+                .param("key", idempotencyKey)
+                .query((rs, rowNum) -> new StoredSubmission(map(rs, rowNum), rs.getString("request_fingerprint")))
+                .optional();
+    }
+
     public Optional<Job> findById(UUID id) {
         return jdbc.sql("SELECT * FROM jobs WHERE id = :id")
                 .param("id", id)

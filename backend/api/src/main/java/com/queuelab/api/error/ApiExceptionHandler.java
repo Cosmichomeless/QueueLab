@@ -15,6 +15,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.queuelab.api.job.IdempotencyConflictException;
 import com.queuelab.api.job.InvalidRequestException;
 import com.queuelab.api.job.JobNotFoundException;
 
@@ -32,6 +33,13 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail jobNotFound(JobNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Trabajo no encontrado");
+        return problem;
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    ProblemDetail idempotencyConflict(IdempotencyConflictException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Conflicto de idempotencia");
         return problem;
     }
 

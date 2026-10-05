@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,12 +26,26 @@ public class JobController {
         this.service = service;
     }
 
-    /** Crea el trabajo en {@code QUEUED} y responde de inmediato, sin esperar a que se procese. */
+    /**
+     * Crea el trabajo en {@code QUEUED} y responde de inmediato, sin esperar a que se procese.
+     *
+     * <p>Con la cabecera opcional {@code Idempotency-Key}, repetir la misma petición responde
+     * {@code 200} con el trabajo ya existente (y {@code Idempotent-Replayed: true}); la misma clave con otra
+     * carga responde {@code 409}.
+     */
     @PostMapping
-    ResponseEntity<JobResponse> submit(@RequestBody SubmitJobRequest request) {
-        Job job = service.submit(request == null ? null : request.type());
-        var location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").build(job.id());
-        return ResponseEntity.created(location).body(JobResponse.from(job));
+    ResponseEntity<JobResponse> submit(
+            @RequestBody SubmitJobRequest request,
+            @RequestHeader(name = IdempotencyKey.HEADER, required = false) String idempotencyKey) {
+        Submission submission = service.submit(request == null ? null : request.type(), idempotencyKey);
+        Job job = submission.job();
+        var location = ServletUriComponentsBuilder.fromCurrentRequest().replaceQuery(null)
+                .path("/{id}").build(job.id());
+        if (submission.created()) {
+            return ResponseEntity.created(location).body(JobResponse.from(job));
+        }
+        return ResponseEntity.ok().location(location).header("Idempotent-Replayed", "true")
+                .body(JobResponse.from(job));
     }
 
     /**

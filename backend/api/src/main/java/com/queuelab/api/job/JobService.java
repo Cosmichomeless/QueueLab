@@ -12,6 +12,7 @@ import com.queuelab.core.job.Job;
 import com.queuelab.core.job.JobCursor;
 import com.queuelab.core.job.JobRepository;
 import com.queuelab.core.job.JobStatus;
+import com.queuelab.core.job.StoredSubmission;
 import com.queuelab.core.outbox.OutboxEvent;
 import com.queuelab.core.outbox.OutboxRepository;
 
@@ -57,11 +58,42 @@ public class JobService {
      * Registra el trabajo en {@code QUEUED} y su evento de outbox en una sola transacción: o se
      * guardan los dos o ninguno. La publicación en RabbitMQ y el procesamiento ocurren fuera de la
      * petición.
+     *
+     * <p>Con {@code idempotencyKey}, repetir la misma petición devuelve el trabajo ya creado (sin
+     * segundo trabajo ni segundo evento) y reutilizar la clave con otra carga lanza
+     * {@link IdempotencyConflictException}. Sin clave, cada llamada crea un trabajo nuevo.
      */
     @Transactional
-    public Job submit(String type) {
+    public Submission submit(String type, String idempotencyKey) {
         typeValidator.validate(type);
+        if (idempotencyKey == null) {
+            return new Submission(create(type), true);
+        }
+        IdempotencyKey.validate(idempotencyKey);
+        String fingerprint = IdempotencyKey.fingerprint(type);
+
+        var existing = jobs.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) {
+            return replay(existing.get(), fingerprint);
+        }
         // PostgreSQL guarda microsegundos: así lo devuelto coincide con lo almacenado.
+        Job job = Job.queued(UUID.randomUUID(), type, clock.instant().truncatedTo(ChronoUnit.MICROS));
+        if (jobs.insertIfKeyAbsent(job, idempotencyKey, fingerprint)) {
+            outbox.insert(OutboxEvent.jobQueued(job, job.createdAt()));
+            return new Submission(job, true);
+        }
+        // Otra petición con la misma clave se nos adelantó entre la consulta y el insert.
+        return replay(jobs.findByIdempotencyKey(idempotencyKey).orElseThrow(), fingerprint);
+    }
+
+    private Submission replay(StoredSubmission stored, String fingerprint) {
+        if (!stored.fingerprint().equals(fingerprint)) {
+            throw new IdempotencyConflictException();
+        }
+        return new Submission(stored.job(), false);
+    }
+
+    private Job create(String type) {
         Job job = Job.queued(UUID.randomUUID(), type, clock.instant().truncatedTo(ChronoUnit.MICROS));
         jobs.insert(job);
         outbox.insert(OutboxEvent.jobQueued(job, job.createdAt()));
