@@ -1,51 +1,116 @@
-2. QUEUELAB — Distributed Job Processing Platform
-   Proyecto centrado en backend, arquitectura y sistemas distribuidos.
-Objetivo:
-Crear una plataforma donde se envíen trabajos pesados para ser procesados de forma asíncrona.
-Ejemplos:
-- Procesamiento de CSV
-- Conversión de archivos
-- Procesamiento de imágenes
-- Análisis por lotes
-Arquitectura aproximada:
-Client
-→ REST API
-→ Job Service
-→ Message Queue
-→ Workers
-→ Database / Storage
-Stack:
-- Java
-- Spring Boot
-- PostgreSQL
-- RabbitMQ o Kafka
-- Redis
-- Docker
-Frontend:
-- Dashboard sencillo con Next.js
-Estados:
-- Queued
-- Running
-- Completed
-- Failed
-- Retrying
-Conceptos que quiero estudiar:
-- Message queues
-- Workers
-- Procesamiento asíncrono
-- Idempotencia
-- Retry strategies
-- Exponential backoff
-- Dead-letter queues
-- Concurrencia
-- Race conditions
-- Rate limiting
-- Caching
-- Fault tolerance
-- Sistemas distribuidos
-- Observabilidad
-Posibles tecnologías adicionales:
-- OpenTelemetry
-- Prometheus
-- Grafana
-3.
+# QueueLab
+
+Plataforma de procesamiento de trabajos asíncronos: un cliente envía un trabajo pesado
+por una API REST, el trabajo se encola en RabbitMQ y un worker independiente lo procesa
+y guarda el resultado en PostgreSQL. Un dashboard en Next.js permite seguir su estado.
+
+Es un proyecto de estudio centrado en backend, arquitectura y sistemas distribuidos
+(colas, idempotencia, reintentos, dead-letter queues, concurrencia, observabilidad…).
+Las notas de partida están en [`docs/notas-originales.md`](docs/notas-originales.md).
+
+> **Estado:** en construcción hacia la v1.0.0. Hoy existen los tres procesos (API, worker,
+> dashboard) como esqueletos, los servicios locales y las migraciones de base de datos.
+> El flujo de trabajos descrito abajo es el diseño objetivo; el backlog está en los
+> [issues](https://github.com/Cosmichomeless/QueueLab/issues).
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    Client([Cliente / Dashboard]) -->|REST /api/v1/jobs| API[API<br/>Spring Boot]
+    API -->|Job + evento outbox<br/>misma transacción| PG[(PostgreSQL)]
+    API -->|publica evento outbox| MQ{{RabbitMQ}}
+    MQ -->|mensaje con jobId| Worker[Worker<br/>Spring Boot]
+    Worker -->|carga datos, guarda<br/>estado y resultado| PG
+    Worker -.->|archivos de entrada/salida| Storage[(Storage)]
+    Dashboard[Dashboard<br/>Next.js] -->|consulta estado| API
+```
+
+Flujo de un trabajo: **cliente → API → RabbitMQ → worker → PostgreSQL / Storage**.
+
+| Proceso | Responsabilidad | Lo que NO hace |
+|---|---|---|
+| **API** (`backend/api`) | Recibe y valida trabajos, los persiste (`QUEUED`), expone estado y listados, publica los mensajes a RabbitMQ. **Es la dueña del esquema**: ejecuta las migraciones Flyway al arrancar. | No procesa trabajos. |
+| **Worker** (`backend/worker`) | Consume mensajes, ejecuta el trabajo, guarda estados (`RUNNING`, `COMPLETED`, `FAILED`, `RETRYING`) y resultado. Sin servidor HTTP. | No expone HTTP ni ejecuta migraciones. |
+| **Core** (`backend/core`) | Librería compartida: migraciones SQL y, más adelante, modelo, repositorios y contrato de mensajes. | No es un proceso. |
+| **Dashboard** (`frontend`) | Interfaz web que consulta la API. | No habla con RabbitMQ ni con PostgreSQL directamente. |
+| **PostgreSQL** | Fuente de verdad del estado de los trabajos. | |
+| **RabbitMQ** | Desacopla API y worker; el mensaje solo lleva el identificador del trabajo. | |
+
+Estados de un trabajo: `QUEUED` → `RUNNING` → `COMPLETED` / `FAILED`, con `RETRYING`
+entre intentos.
+
+Stack: Java 25, Spring Boot 4.1, PostgreSQL 18, RabbitMQ 4, Flyway, Next.js 16, Docker Compose.
+Redis está previsto para más adelante y aún no se usa.
+
+## Estructura del repositorio
+
+```
+.
+├── backend/            Maven multi-módulo: core, api, worker
+├── frontend/           Dashboard Next.js (App Router, TypeScript)
+├── docs/               Notas del proyecto
+├── docker-compose.yml  PostgreSQL y RabbitMQ para desarrollo
+└── .env.example        Variables de entorno de ejemplo
+```
+
+## Puesta en marcha desde cero
+
+### Requisitos
+
+- Docker con Compose v2
+- JDK 25 (el Maven Wrapper se incluye: no hace falta instalar Maven)
+- Node.js 20.9 o superior y npm
+
+### 1. Configuración
+
+```bash
+cp .env.example .env                  # valores de desarrollo; .env no se versiona
+cp frontend/.env.example frontend/.env.local
+```
+
+### 2. Servicios locales (PostgreSQL y RabbitMQ)
+
+```bash
+docker compose up -d --wait           # espera a que estén healthy
+```
+
+PostgreSQL queda en `localhost:5434` y RabbitMQ en `localhost:5672`
+(consola en http://localhost:15672). Credenciales de desarrollo: `queuelab` / `queuelab`.
+
+### 3. Backend
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 25)   # macOS; en Linux, la ruta de su JDK 25
+cd backend && ./mvnw verify                        # compila y prueba (las pruebas usan Docker)
+
+# En terminales separadas, desde la raíz del repositorio:
+SPRING_PROFILES_ACTIVE=local java -jar backend/api/target/queuelab-api-0.1.0-SNAPSHOT.jar
+SPRING_PROFILES_ACTIVE=local java -jar backend/worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar
+```
+
+La API escucha en http://localhost:8080 (`/actuator/health`) y aplica las migraciones al
+arrancar. El perfil `local` aporta las contraseñas de desarrollo; sin él hay que definir
+`QUEUELAB_DB_PASSWORD` y `QUEUELAB_RABBITMQ_PASSWORD`.
+
+### 4. Dashboard
+
+```bash
+cd frontend
+npm ci
+npm run dev                           # http://localhost:3000
+```
+
+Otros scripts: `npm run lint`, `npm run typecheck`, `npm run build`.
+
+### Parar y limpiar
+
+```bash
+docker compose down                   # conserva los datos
+docker compose down -v                # borra también los volúmenes
+```
+
+## Más documentación
+
+- [`backend/README.md`](backend/README.md): variables `QUEUELAB_*`, perfiles y migraciones.
+- [`.env.example`](.env.example) y [`frontend/.env.example`](frontend/.env.example): todas las variables explicadas.
