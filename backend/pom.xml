@@ -24,5 +24,6 @@
 
     <modules>
         <module>api</module>
+        <module>worker</module>
     </modules>
 </project>

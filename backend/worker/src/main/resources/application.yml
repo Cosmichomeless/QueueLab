@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: queuelab-worker
+  main:
+    # El worker no expone HTTP: es un proceso de fondo que consume mensajes.
+    web-application-type: none
+    # Mantiene viva la JVM aunque aún no haya consumidores registrados.
+    keep-alive: true
