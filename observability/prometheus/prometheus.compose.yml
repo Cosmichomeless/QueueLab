@@ -1,0 +1,21 @@
+# Prometheus para el stack completo de docker-compose.yml (API y worker en contenedores): se alcanzan por el nombre
+# del servicio dentro de la red `queuelab`. Se elige con PROMETHEUS_CONFIG (ver docs/observability/dashboard.md):
+#   PROMETHEUS_CONFIG=./observability/prometheus/prometheus.compose.yml docker compose --profile observability up -d
+# Las etiquetas `job` son las mismas que en prometheus.yml, así que el dashboard de Grafana funciona igual.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: queuelab-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api:8080"]
+
+  # Con varias réplicas (`--scale worker=N`) el nombre `worker` se resuelve a todas ellas; se consultan por DNS.
+  - job_name: queuelab-worker
+    metrics_path: /metrics
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 8081

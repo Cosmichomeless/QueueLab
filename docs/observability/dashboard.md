@@ -7,7 +7,7 @@ no lleva autenticación real ni persistencia pensada para producción.
 ## Arranque
 
 ```bash
-docker compose --profile observability up -d        # postgres, rabbitmq, redis + prometheus y grafana
+docker compose up -d --wait postgres rabbitmq redis prometheus grafana   # infraestructura + prometheus y grafana
 cd backend && ./mvnw -q -DskipTests package && cd ..
 
 # API (puerto 8080) y worker (el worker debe abrir /metrics fuera de 127.0.0.1 para que lo alcance el contenedor)
@@ -23,7 +23,19 @@ SPRING_PROFILES_ACTIVE=local QUEUELAB_METRICS_ADDRESS=0.0.0.0 java -jar backend/
 Los puertos (`GRAFANA_PORT`, `PROMETHEUS_PORT`) y los servicios solo se publican en `127.0.0.1`. Grafana usa el 3300
 para no chocar con el dashboard web (3000) ni con servidores de desarrollo habituales (3001).
 
-Sin el perfil `observability`, `docker compose up` sigue levantando solo PostgreSQL, RabbitMQ y Redis.
+Sin el perfil `observability` (y sin nombrarlos), Prometheus y Grafana no se levantan.
+
+### Con el stack completo en contenedores
+
+Si la API y el worker corren en Compose ([`docs/compose-stack.md`](../compose-stack.md)), Prometheus los alcanza por
+el nombre del servicio (`api:8080`, `worker:8081`) con otra configuración de scrape:
+
+```bash
+PROMETHEUS_CONFIG=./observability/prometheus/prometheus.compose.yml docker compose --profile observability up -d --wait
+```
+
+El worker ya arranca con `QUEUELAB_METRICS_ADDRESS=0.0.0.0` dentro de la red de Compose; su puerto 8081 **no** se
+publica en el host.
 
 ## Qué muestra
 

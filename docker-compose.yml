@@ -1,4 +1,4 @@
-# Servicios locales de QueueLab para desarrollo (PostgreSQL, RabbitMQ y Redis).
+# QueueLab con Docker Compose: infraestructura (PostgreSQL, RabbitMQ y Redis) y aplicación (API, worker y dashboard).
 # Los valores por defecto son SOLO para desarrollo local; sobrescríbalos con un
 # fichero .env (ver .env.example). Los puertos solo se publican en 127.0.0.1.
 # PostgreSQL usa el puerto 5434 del host para no chocar con otras instancias locales (5432/5433).
@@ -53,9 +53,95 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # --- Aplicación: `docker compose up -d --wait` levanta todo el flujo (API, worker y dashboard) ---
+  # Las imágenes se construyen desde el código (la primera vez tarda unos minutos: Maven y npm). La configuración
+  # llega por variables de entorno; los servicios hablan entre sí por nombre dentro de la red `queuelab` (ver `networks` al final).
+  # Para desarrollar con la API/worker/dashboard en el host, levante solo la infraestructura:
+  #   docker compose up -d --wait postgres rabbitmq redis
+  # Ver docs/compose-stack.md.
+  api:
+    build:
+      context: ./backend
+      dockerfile: api/Dockerfile
+    image: queuelab-api
+    environment:
+      QUEUELAB_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-queuelab}
+      QUEUELAB_DB_USER: ${POSTGRES_USER:-queuelab}
+      QUEUELAB_DB_PASSWORD: ${POSTGRES_PASSWORD:-queuelab}
+      QUEUELAB_RABBITMQ_HOST: rabbitmq
+      QUEUELAB_RABBITMQ_USER: ${RABBITMQ_USER:-queuelab}
+      QUEUELAB_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-queuelab}
+      QUEUELAB_REDIS_HOST: redis
+      # El navegador llama a la API desde el origen del dashboard (localhost o 127.0.0.1, según cómo se abra).
+      QUEUELAB_CORS_ALLOWED_ORIGINS: http://localhost:${DASHBOARD_PORT:-3000},http://127.0.0.1:${DASHBOARD_PORT:-3000}
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    volumes:
+      # API y worker deben compartir este volumen: la API guarda las entradas y sirve los resultados que escribe el worker.
+      - storage-data:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # El healthcheck (GET /actuator/health) viene definido en la imagen.
+    restart: unless-stopped
+
+  # Réplicas: `docker compose up -d --scale worker=3` (sin container_name ni puertos publicados, no hay conflictos).
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    image: queuelab-worker
+    environment:
+      QUEUELAB_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-queuelab}
+      QUEUELAB_DB_USER: ${POSTGRES_USER:-queuelab}
+      QUEUELAB_DB_PASSWORD: ${POSTGRES_PASSWORD:-queuelab}
+      QUEUELAB_RABBITMQ_HOST: rabbitmq
+      QUEUELAB_RABBITMQ_USER: ${RABBITMQ_USER:-queuelab}
+      QUEUELAB_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-queuelab}
+      # /metrics sin autenticación: se abre a la red de Compose (para Prometheus), pero el puerto NO se publica en el host.
+      QUEUELAB_METRICS_ADDRESS: 0.0.0.0
+    volumes:
+      - storage-data:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      # La API aplica las migraciones de Flyway al arrancar; el worker asume que el esquema ya existe.
+      api:
+        condition: service_healthy
+    # El worker no tiene puerto HTTP de negocio: se vigila con su endpoint /metrics (la imagen no trae HEALTHCHECK).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 45s
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./frontend
+    image: queuelab-dashboard
+    environment:
+      # URL de la API tal como la ve el NAVEGADOR (no un nombre interno de la red de Compose).
+      QUEUELAB_API_URL: http://localhost:${API_PORT:-8080}
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    # El healthcheck (GET /jobs) viene definido en la imagen.
+    restart: unless-stopped
+
   # --- Observabilidad (opcional): `docker compose --profile observability up -d` ---
-  # Prometheus recoge las métricas de la API y del worker (que corren en el host) y Grafana muestra el dashboard
-  # provisionado. Ver docs/observability/dashboard.md. Grafana usa el 3300 para no chocar con el dashboard web (3000) ni con servidores de desarrollo habituales (3001).
+  # Prometheus recoge las métricas de la API y del worker y Grafana muestra el dashboard provisionado. Por defecto
+  # apunta a la API y al worker del host; con el stack de arriba use PROMETHEUS_CONFIG=prometheus.compose.yml
+  # (ver docs/observability/dashboard.md). Grafana usa el 3300 para no chocar con el dashboard web (3000) ni con servidores de desarrollo habituales (3001).
   prometheus:
     profiles: ["observability"]
     image: prom/prometheus:v3.5.0
@@ -65,7 +151,7 @@ services:
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PROMETHEUS_CONFIG:-./observability/prometheus/prometheus.yml}:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -104,8 +190,16 @@ services:
       retries: 20
     restart: unless-stopped
 
+# Red única y con nombre fijo: todos los servicios (también Prometheus y Grafana) se resuelven por su nombre
+# (`postgres`, `rabbitmq`, `redis`, `api`, `worker`). Solo se publican, en 127.0.0.1, los puertos que se listan arriba.
+networks:
+  default:
+    name: queuelab
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  # Entradas y resultados de los trabajos CSV: compartido por la API y los worker.
+  storage-data:
   prometheus-data:
   grafana-data:

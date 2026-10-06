@@ -28,11 +28,14 @@ java -jar backend/worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar
 Se arrancan con Docker Compose desde la raíz del repositorio:
 
 ```bash
-docker compose up -d --wait      # arranca y espera a que estén healthy
+docker compose up -d --wait postgres rabbitmq redis   # solo la infraestructura; espera a que estén healthy
 docker compose ps                # estado
 docker compose down              # parar (conserva los datos)
 docker compose down -v           # parar y borrar los volúmenes
 ```
+
+`docker compose up -d --wait` sin nombres levanta además la API, el worker y el dashboard **en contenedores** (puertos
+8080 y 3000): no lo uses si vas a ejecutarlos desde el host. Ver [`docs/compose-stack.md`](../docs/compose-stack.md).
 
 | Servicio | Host | Puerto | Credenciales por defecto (solo desarrollo) |
 |---|---|---|---|

@@ -74,8 +74,12 @@ cp frontend/.env.example frontend/.env.local
 ### 2. Servicios locales (PostgreSQL, RabbitMQ y Redis)
 
 ```bash
-docker compose up -d --wait           # espera a que estén healthy
+docker compose up -d --wait postgres rabbitmq redis   # solo la infraestructura; espera a que estén healthy
 ```
+
+> Con `docker compose up -d --wait` a secas se levanta **todo el stack** (también API, worker y dashboard en
+> contenedores): ver [Stack completo con Compose](#stack-completo-con-compose). No lo mezcles con los pasos 3 y 4:
+> la API y el dashboard del contenedor ocupan los puertos 8080 y 3000.
 
 PostgreSQL queda en `localhost:5434`, RabbitMQ en `localhost:5672`
 (consola en http://localhost:15672) y Redis en `localhost:6379`. Credenciales de desarrollo: `queuelab` / `queuelab`.
@@ -107,6 +111,18 @@ Otros scripts: `npm run lint`, `npm run typecheck`, `npm run build`. El dashboar
 navegador (`NEXT_PUBLIC_API_URL`), así que la API debe admitir su origen: por defecto `http://localhost:3000`
 (`QUEUELAB_CORS_ALLOWED_ORIGINS`). Detalles en [`frontend/README.md`](frontend/README.md).
 
+### Stack completo con Compose
+
+Para probar el flujo completo sin instalar Java ni Node, solo con Docker:
+
+```bash
+docker compose up -d --wait           # construye las imágenes la primera vez (unos minutos) y espera a que estén healthy
+# Dashboard: http://localhost:3000 · API: http://localhost:8080/actuator/health
+```
+
+Levanta PostgreSQL, RabbitMQ, Redis, la API, el worker y el dashboard; sube un CSV en el dashboard y se procesa de
+extremo a extremo. Detalles, puertos, volúmenes y límites en [`docs/compose-stack.md`](docs/compose-stack.md).
+
 ### Parar y limpiar
 
 ```bash
@@ -129,3 +145,4 @@ docker compose down -v                # borra también los volúmenes
 - [`docs/containers-backend.md`](docs/containers-backend.md) y [`docs/containers-frontend.md`](docs/containers-frontend.md): imágenes de API, worker y dashboard.
 - [`docs/ci-backend.md`](docs/ci-backend.md): CI del backend y el worker en GitHub Actions.
 - [`docs/ci-frontend.md`](docs/ci-frontend.md): CI del dashboard (lint, tipos, tests y build) en GitHub Actions.
+- [`docs/compose-stack.md`](docs/compose-stack.md): stack completo (API, worker, dashboard, PostgreSQL, RabbitMQ y Redis) con `docker compose up`.
