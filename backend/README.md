@@ -519,6 +519,22 @@ Los logs de cada proceso quedan en `e2e/target/e2e-logs/`. El módulo va el últ
 los jars empaquetados: ejecuta `./mvnw verify` (o `./mvnw -pl e2e -am verify`); lanzar solo `test` falla con un
 mensaje que lo explica. Requiere Docker.
 
+### CSV de extremo a extremo (`CsvEndToEndTest`) (#33)
+
+Misma infraestructura, con la API arrancada con un límite de subida de 2 MB (`QUEUELAB_CSV_MAX_FILE_SIZE`) y el
+worker con la retención de entradas `COMPLETED` acortada a 4 s (`QUEUELAB_CLEANUP_*`) para ejercitar en segundos
+lo que en producción tarda horas. Los casos finos (cada formato, cada error de fila) siguen en los tests de
+módulo (`CsvUploadTest`, `CsvImportTest`, `ResultDownloadTest`, `StorageCleanerTest`); aquí se prueba que encajan:
+
+| Escenario | Qué se demuestra |
+|---|---|
+| CSV de muestra | `POST /api/v1/jobs/csv` (multipart real) → `COMPLETED`, `result` "CSV procesado: 3 filas, 3 columnas", `resultFile` con nombre, tipo y `downloadUrl`; la descarga trae `Content-Disposition: attachment`, el tamaño anunciado y las estadísticas esperadas (suma 14.5, media 7.25, 1 vacío). |
+| Fila malformada | `FAILED` con "Línea 3: ...", `attempts = 1`, sin `resultFile`, `GET .../result` → `409`, y la entrada se conserva para un reintento manual. |
+| Fichero grande | 100 000 filas (~1,7 MB) atraviesan subida, worker y descarga con estadísticas exactas (mín., máx. y suma). |
+| Tamaño excesivo | Un byte por encima del límite → `413` con `detail` y ningún trabajo creado. |
+| Formato incorrecto | `image/png` → `415`; fichero vacío → `400`; ningún trabajo creado. |
+| Limpieza | Pasada la retención, la entrada de un `COMPLETED` desaparece del disco y su `input_ref` queda a `NULL`, pero el resultado sigue descargable. |
+
 ### Fallos esperables (`ReliabilityTest`)
 
 Misma infraestructura (procesos reales, Docker, HTTP y SQL), centrada en lo que puede salir mal:
