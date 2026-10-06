@@ -3,6 +3,9 @@ package com.queuelab.api.job;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,7 +54,7 @@ public class JobController {
             return ResponseEntity.created(location).body(JobResponse.from(job));
         }
         return ResponseEntity.ok().location(location).header("Idempotent-Replayed", "true")
-                .body(JobResponse.from(job));
+                .body(service.view(job));
     }
 
     /**
@@ -98,6 +101,23 @@ public class JobController {
 
     @GetMapping("/{id}")
     JobResponse get(@PathVariable UUID id) {
-        return JobResponse.from(service.get(id));
+        return service.view(service.get(id));
+    }
+
+    /**
+     * Descarga el fichero de resultado de un trabajo {@code COMPLETED} (para {@code csv-import}, las
+     * estadísticas en JSON). {@code 409} si el trabajo aún no terminó o falló; {@code 404} si no existe o no
+     * produce fichero.
+     */
+    @GetMapping("/{id}/result")
+    ResponseEntity<InputStreamResource> downloadResult(@PathVariable UUID id) {
+        ResultDownload download = service.openResult(id);
+        ResultFile file = download.file();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.contentType()))
+                .contentLength(file.size())
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(file.name()).build().toString())
+                .body(new InputStreamResource(download.content()));
     }
 }

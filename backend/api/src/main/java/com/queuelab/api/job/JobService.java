@@ -4,6 +4,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -17,6 +19,9 @@ import com.queuelab.core.job.JobStatus;
 import com.queuelab.core.job.StoredSubmission;
 import com.queuelab.core.outbox.OutboxEvent;
 import com.queuelab.core.outbox.OutboxRepository;
+import com.queuelab.core.storage.FileStorage;
+import com.queuelab.core.storage.StorageException;
+import com.queuelab.core.storage.StoredFileNotFoundException;
 
 @Service
 public class JobService {
@@ -25,8 +30,11 @@ public class JobService {
     private final Clock clock;
     private final OutboxRepository outbox;
     private final JobTypeValidator typeValidator;
+    private final FileStorage storage;
 
-    public JobService(JobRepository jobs, OutboxRepository outbox, Clock clock, JobTypeValidator typeValidator) {
+    public JobService(JobRepository jobs, OutboxRepository outbox, Clock clock, JobTypeValidator typeValidator,
+            FileStorage storage) {
+        this.storage = storage;
         this.jobs = jobs;
         this.outbox = outbox;
         this.clock = clock;
@@ -53,7 +61,62 @@ public class JobService {
         List<Job> page = hasMore ? found.subList(0, limit) : found;
 
         String next = hasMore ? CursorCodec.encode(JobCursor.of(page.getLast())) : null;
-        return new JobPage(page.stream().map(JobResponse::from).toList(), next);
+        Map<UUID, String> resultRefs = jobs.findResultRefs(
+                page.stream().filter(job -> job.status() == JobStatus.COMPLETED).map(Job::id).toList());
+        return new JobPage(page.stream()
+                .map(job -> JobResponse.from(job, resultFile(job, resultRefs.get(job.id())).orElse(null)))
+                .toList(), next);
+    }
+
+    /** El trabajo con su fichero de resultado, si lo tiene y está disponible (ver {@link #resultFile}). */
+    public JobResponse view(Job job) {
+        String ref = job.status() == JobStatus.COMPLETED ? jobs.findResultRef(job.id()).orElse(null) : null;
+        return JobResponse.from(job, resultFile(job, ref).orElse(null));
+    }
+
+    /**
+     * Abre el resultado para descargarlo.
+     *
+     * @throws JobNotFoundException      si el trabajo no existe
+     * @throws ResultNotReadyException   si no está {@code COMPLETED} (pendiente, en curso o fallido)
+     * @throws ResultNotFoundException   si terminó pero no tiene fichero (p. ej. un trabajo {@code noop})
+     */
+    public ResultDownload openResult(UUID id) {
+        Job job = get(id);
+        if (job.status() != JobStatus.COMPLETED) {
+            throw new ResultNotReadyException(id, job.status());
+        }
+        String ref = jobs.findResultRef(id).orElseThrow(() -> new ResultNotFoundException(id));
+        ResultFile file = resultFile(job, ref).orElseThrow(() -> new ResultNotFoundException(id));
+        try {
+            return new ResultDownload(file, storage.open(ref));
+        } catch (StoredFileNotFoundException e) {
+            throw new ResultNotFoundException(id);
+        }
+    }
+
+    /**
+     * Anuncia el fichero solo si el trabajo está {@code COMPLETED}, tiene referencia y el fichero existe de
+     * verdad: un resultado que no se puede descargar no se promete.
+     */
+    private Optional<ResultFile> resultFile(Job job, String ref) {
+        if (job.status() != JobStatus.COMPLETED || ref == null) {
+            return Optional.empty();
+        }
+        try {
+            if (!storage.exists(ref)) {
+                return Optional.empty();
+            }
+            String name = ref.substring(ref.lastIndexOf('/') + 1);
+            return Optional.of(new ResultFile(name, contentTypeOf(name), storage.size(ref),
+                    "/api/v1/jobs/" + job.id() + "/result"));
+        } catch (StorageException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static String contentTypeOf(String name) {
+        return name.endsWith(".json") ? "application/json" : "application/octet-stream";
     }
 
     /**

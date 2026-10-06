@@ -72,6 +72,13 @@ Dos cosas, ambas deterministas para un mismo fichero:
   y no lleva más estadísticas que los recuentos).
 - `text` añade `minLength` y `maxLength` (en caracteres) de los no vacíos.
 
+### Cómo lo expone la API (#31)
+
+- `GET /api/v1/jobs/{id}` incluye `result` (texto) y, solo si el trabajo está `COMPLETED` y el fichero existe,
+  `resultFile` con `name`, `contentType`, `size` y `downloadUrl` (`/api/v1/jobs/{id}/result`).
+- Un trabajo pendiente, `RUNNING`, `RETRYING` o `FAILED` **no** anuncia resultado (`resultFile: null`) y su
+  descarga responde `409`; un trabajo inexistente o sin fichero responde `404`.
+
 ## Fallos
 
 | Situación | Resultado |

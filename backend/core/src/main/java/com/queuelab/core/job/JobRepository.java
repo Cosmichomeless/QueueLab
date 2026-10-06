@@ -4,7 +4,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -95,6 +98,22 @@ public class JobRepository {
                 .param("id", id)
                 .query(String.class)
                 .optional();
+    }
+
+    /** Referencias de resultado de varios trabajos en una sola consulta; los que no tienen no aparecen. */
+    public Map<UUID, String> findResultRefs(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> refs = new HashMap<>();
+        jdbc.sql("SELECT id, result_ref FROM jobs WHERE id IN (:ids) AND result_ref IS NOT NULL")
+                .param("ids", ids)
+                .query((rs, rowNum) -> {
+                    refs.put(rs.getObject("id", UUID.class), rs.getString("result_ref"));
+                    return null;
+                })
+                .list();
+        return refs;
     }
 
     public Optional<Job> findById(UUID id) {

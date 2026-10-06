@@ -200,6 +200,23 @@ el [almacenamiento](#almacenamiento-de-ficheros) como `inputs/<jobId>.csv` (el n
 - Configuración: `queuelab.csv.max-file-size` (por defecto `10MB`; `spring.servlet.multipart.max-request-size` queda en `11MB`,
   súbelo también si subes el límite del fichero).
 
+### Resultado y descarga (`GET /api/v1/jobs/{id}/result`)
+
+Cuando un trabajo termina en `COMPLETED` y produjo un fichero (hoy, `csv-import` → `<jobId>.stats.json`), la
+respuesta de `GET /api/v1/jobs/{id}`, del listado y de los envíos idempotentes incluye `resultFile`:
+
+```json
+"resultFile": {"name": "<jobId>.stats.json", "contentType": "application/json", "size": 196,
+               "downloadUrl": "/api/v1/jobs/<jobId>/result"}
+```
+
+- `resultFile` es `null` si el trabajo no está `COMPLETED` (pendiente, `RUNNING`, `RETRYING`, `FAILED`), si no
+  produce fichero (`noop`) o si el fichero ya no está en el almacenamiento: **no se anuncia un resultado que no
+  se pueda descargar**. El listado resuelve las referencias con una sola consulta (`findResultRefs`).
+- `GET /api/v1/jobs/{id}/result` envía el fichero en streaming con `Content-Type`, `Content-Length` y
+  `Content-Disposition: attachment`. Errores `application/problem+json`: `404` si el trabajo no existe o
+  terminó sin fichero («Resultado no encontrado»); `409` si aún no terminó o falló («Resultado no disponible»).
+
 ## Pruebas del ciclo de vida
 
 `JobLifecycleApiTest` recorre el ciclo completo contra un PostgreSQL real (Testcontainers) cuyo

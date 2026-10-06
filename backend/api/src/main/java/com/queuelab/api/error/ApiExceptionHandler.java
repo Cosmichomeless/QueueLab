@@ -21,6 +21,8 @@ import com.queuelab.api.job.IdempotencyConflictException;
 import com.queuelab.api.job.InvalidRequestException;
 import com.queuelab.api.job.JobNotFoundException;
 import com.queuelab.api.job.JobNotRetryableException;
+import com.queuelab.api.job.ResultNotFoundException;
+import com.queuelab.api.job.ResultNotReadyException;
 import com.queuelab.api.job.UnsupportedUploadTypeException;
 import com.queuelab.api.job.UploadTooLargeException;
 
@@ -45,6 +47,20 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail jobNotRetryable(JobNotRetryableException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("El trabajo no se puede reintentar");
+        return problem;
+    }
+
+    @ExceptionHandler(ResultNotReadyException.class)
+    ProblemDetail resultNotReady(ResultNotReadyException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Resultado no disponible");
+        return problem;
+    }
+
+    @ExceptionHandler(ResultNotFoundException.class)
+    ProblemDetail resultNotFound(ResultNotFoundException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        problem.setTitle("Resultado no encontrado");
         return problem;
     }
 

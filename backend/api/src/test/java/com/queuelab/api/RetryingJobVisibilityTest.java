@@ -67,7 +67,7 @@ class RetryingJobVisibilityTest {
                 .andExpect(jsonPath("$.attempts").value(1))
                 .andExpect(jsonPath("$.error").value("El servicio externo no responde"))
                 // Solo campos públicos conocidos: no hay payload ni entrada del trabajo.
-                .andExpect(jsonPath("$.length()").value(10))
+                .andExpect(jsonPath("$.length()").value(11))
                 .andExpect(jsonPath("$.payload").doesNotExist())
                 .andExpect(jsonPath("$.input").doesNotExist());
     }
