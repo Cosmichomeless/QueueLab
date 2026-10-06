@@ -122,6 +122,7 @@ docker compose down -v                # borra también los volúmenes
 - [`docs/performance/capacity.md`](docs/performance/capacity.md): capacidad, trade-offs de cada límite (concurrencia, `prefetch`, contrapresión, cuota, outbox, lease) y cómo cambiarlos con seguridad.
 - [`docs/observability/tracing.md`](docs/observability/tracing.md): trazas OpenTelemetry que unen petición HTTP, outbox y worker (spans, configuración, degradación).
 - [`docs/observability/metrics.md`](docs/observability/metrics.md): métricas Prometheus de trabajos y cola (catálogo, endpoints y limitaciones).
+- [`docs/observability/dashboard.md`](docs/observability/dashboard.md): Prometheus y Grafana locales con el dashboard de cola, reintentos y DLQ (`docker compose --profile observability up -d`).
 - [`docs/security/upload-api-review.md`](docs/security/upload-api-review.md): revisión de seguridad de la subida de ficheros y la API.
 - [`docs/integration-tests.md`](docs/integration-tests.md): tests de integración con PostgreSQL y RabbitMQ reales (Testcontainers).
 - [`docs/e2e-dashboard.md`](docs/e2e-dashboard.md): pruebas e2e del dashboard con Playwright.

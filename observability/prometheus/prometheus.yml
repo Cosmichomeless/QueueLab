@@ -1,0 +1,18 @@
+# Prometheus local de QueueLab (perfil `observability` de docker-compose.yml). Solo desarrollo.
+# La API y el worker corren en el host (`./mvnw spring-boot:run` o `java -jar`), así que se alcanzan por
+# host.docker.internal. Ver docs/observability/dashboard.md.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: queuelab-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+  - job_name: queuelab-worker
+    metrics_path: /metrics
+    static_configs:
+      # El worker escucha por defecto solo en 127.0.0.1: arráncalo con QUEUELAB_METRICS_ADDRESS=0.0.0.0.
+      - targets: ["host.docker.internal:8081"]

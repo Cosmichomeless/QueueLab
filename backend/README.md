@@ -359,6 +359,13 @@ worker  Trabajo 39ae… completado (intento 1)
 Lo comprueba `LoggingEndToEndTest` (e2e con JSON): mismo `correlationId` y `jobId` en API, publicación y worker,
 cabecera inválida sustituida y ningún dato de celda en los logs.
 
+## Dashboard de métricas (Prometheus + Grafana)
+
+`docker compose --profile observability up -d` levanta un Prometheus (`:9090`) y un Grafana (`:3300`) con el
+dashboard QueueLab provisionado (cola, consumidores, DLQ, reintentos, duración y espera). Para que Prometheus alcance
+el worker hay que arrancarlo con `QUEUELAB_METRICS_ADDRESS=0.0.0.0`. Detalles y verificación en
+[docs/observability/dashboard.md](../docs/observability/dashboard.md).
+
 ## Trazas (OpenTelemetry)
 
 Una traza une la petición HTTP, la espera y publicación en el outbox y la ejecución en el worker. El contexto
