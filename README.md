@@ -49,7 +49,7 @@ Redis está previsto para más adelante y aún no se usa.
 .
 ├── backend/            Maven multi-módulo: core, api, worker
 ├── frontend/           Dashboard Next.js (App Router, TypeScript)
-├── docs/               Notas del proyecto
+├── docs/               Notas del proyecto y contrato del trabajo CSV (docs/csv-workload.md)
 ├── docker-compose.yml  PostgreSQL y RabbitMQ para desarrollo
 └── .env.example        Variables de entorno de ejemplo
 ```

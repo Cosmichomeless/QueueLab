@@ -124,7 +124,7 @@ class IdempotentSubmitTest {
         submit("csv-import", "order-1");
 
         mvc.perform(post("/api/v1/jobs").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"image-resize\"}").header("Idempotency-Key", "order-1"))
+                        .content("{\"type\":\"noop\"}").header("Idempotency-Key", "order-1"))
                 .andExpect(status().isConflict())
                 .andExpect(header().string("Content-Type", org.hamcrest.Matchers.containsString("problem+json")))
                 .andExpect(jsonPath("$.title").value("Conflicto de idempotencia"))

@@ -20,8 +20,9 @@ spring:
 
 queuelab:
   jobs:
-    # Tipos de trabajo que acepta POST /api/v1/jobs.
-    types: noop,csv-import,image-resize
+    # Tipos de trabajo que acepta POST /api/v1/jobs: solo los que el worker sabe ejecutar.
+    # Añadir un tipo aquí sin su ejecutor lo dejaría aceptado pero sin procesar.
+    types: noop,csv-import
   outbox:
     dispatch:
       interval: 1s

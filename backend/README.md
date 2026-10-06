@@ -124,7 +124,9 @@ Los errores usan `application/problem+json` (RFC 9457) con `status`, `title`, `d
 
 `type` es obligatorio, de hasta 100 caracteres, en `kebab-case` (minúsculas, dígitos y guiones) y
 debe ser uno de los tipos conocidos, que se configuran en `queuelab.jobs.types` (por defecto
-`noop`, `csv-import`, `image-resize`). Cualquier incumplimiento da 400.
+`noop`, `csv-import`). Solo figuran los que el worker sabe ejecutar: un tipo sin implementar (p. ej.
+`image-resize`) da 400 en vez de aceptarse y quedarse sin procesar. Cualquier incumplimiento da 400. El alcance del trabajo `csv-import` (formato, límites y salida) está en
+[`docs/csv-workload.md`](../docs/csv-workload.md).
 
 | Situación | Respuesta |
 |---|---|

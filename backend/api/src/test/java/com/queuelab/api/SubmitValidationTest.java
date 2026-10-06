@@ -32,6 +32,15 @@ class SubmitValidationTest {
     }
 
     @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"image-resize", "file-conversion", "batch-analysis"})
+    void typesThatAreNotImplementedAreRejected(String type) throws Exception {
+        submit("{\"type\":\"" + type + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(
+                        "Tipo de trabajo desconocido. Tipos admitidos: csv-import, noop"));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"type\":null}", "{\"type\":\"\"}", "{\"type\":\"   \"}"})
     void missingOrBlankTypeIsRejected(String body) throws Exception {
         submit(body)
@@ -46,7 +55,7 @@ class SubmitValidationTest {
         submit("{\"type\":\"launch-missiles\"}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(
-                        "Tipo de trabajo desconocido. Tipos admitidos: csv-import, image-resize, noop"));
+                        "Tipo de trabajo desconocido. Tipos admitidos: csv-import, noop"));
     }
 
     @ParameterizedTest

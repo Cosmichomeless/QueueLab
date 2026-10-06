@@ -51,7 +51,7 @@ class JobRepositoryTest {
 
     @Test
     void persistsLifecycleTransitions() {
-        Job queued = Job.queued(UUID.randomUUID(), "image-resize", now());
+        Job queued = Job.queued(UUID.randomUUID(), "noop", now());
         repository.insert(queued);
 
         Job running = queued.transitionTo(JobStatus.RUNNING, now());
