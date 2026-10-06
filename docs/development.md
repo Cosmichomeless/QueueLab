@@ -83,4 +83,5 @@ Se regeneran con `./scripts/screenshots.sh`; el comando y sus requisitos están 
 - [`ci-backend.md`](ci-backend.md): CI del backend y el worker en GitHub Actions.
 - [`ci-frontend.md`](ci-frontend.md): CI del dashboard (lint, tipos, tests y build) en GitHub Actions.
 - [`compose-stack.md`](compose-stack.md): stack completo (API, worker, dashboard, PostgreSQL, RabbitMQ y Redis) con `docker compose up`.
+- [`deployment/services-and-costs.md`](deployment/services-and-costs.md): dónde correría fuera del portátil con 0 €, quién opera cada pieza, costes y límites.
 - [`notas-originales.md`](notas-originales.md): notas de partida del proyecto.
