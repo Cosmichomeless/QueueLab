@@ -1,0 +1,61 @@
+# CI del backend (api, worker, core y e2e): compila y ejecuta TODOS los tests de Java en cada pull request.
+# Detalles y decisiones en docs/ci-backend.md.
+name: Backend
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  # Permite lanzarlo a mano desde la pestaña Actions (por ejemplo, para repetir una ejecución sospechosa).
+  workflow_dispatch:
+
+# Solo lectura: el job no necesita escribir en el repositorio ni en issues/PR.
+permissions:
+  contents: read
+
+# Un push nuevo a la misma rama cancela la ejecución anterior, que ya no sirve.
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Este es el nombre del check que se marca como obligatorio en la protección de la rama (ver docs/ci-backend.md).
+  build-and-test:
+    name: Backend build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          # Cachea ~/.m2 con clave basada en los pom.xml: las dependencias no se descargan en cada PR.
+          cache: maven
+
+      # `verify` recorre core → api → worker → e2e: compila, ejecuta los tests unitarios y de integración
+      # (Testcontainers con PostgreSQL, RabbitMQ y Redis reales; el runner ya trae Docker) y empaqueta los jars
+      # que luego lanza el módulo e2e. Cualquier test que falle hace fallar el job y, con él, el check.
+      - name: Build and test (unit, integration, e2e)
+        run: ./mvnw -B --no-transfer-progress verify
+
+      # Si algo falla, los informes de Surefire y los logs de los procesos del e2e explican por qué.
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-test-logs
+          path: |
+            backend/**/target/surefire-reports/
+            backend/e2e/target/e2e-logs/
+          if-no-files-found: ignore
+          retention-days: 7
