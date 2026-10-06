@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -127,6 +128,17 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .header("RateLimit-Reset", String.valueOf(decision.resetSeconds()))
                 .contentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
+    }
+
+    /**
+     * Multipart que el contenedor no puede leer (sin {@code boundary}, cuerpo truncado, demasiadas partes…). Es un
+     * fallo del cliente, no un 500: sin esto caía en la red de seguridad y registraba una traza por cada petición
+     * malformada. El motivo concreto va solo a {@code debug}.
+     */
+    @ExceptionHandler(MultipartException.class)
+    ProblemDetail malformedMultipart(MultipartException ex) {
+        log.debug("Petición multipart no válida", ex);
+        return badRequest("La petición multipart no es válida");
     }
 
     /** El contenedor corta la subida al superar el límite de multipart, antes de que llegue al servicio. */
