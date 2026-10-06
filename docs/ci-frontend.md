@@ -75,6 +75,10 @@ npm run build
 - **Verificado en local:** `npm ci`, `lint`, `typecheck`, `npm test` (59 tests) y `npm run build` terminan con
   código 0 sobre el código actual; los tres fallos provocados de la tabla anterior hacen fallar su paso; el YAML
   se parsea correctamente.
-- **No verificado:** ver la sección «Ejecución en GitHub» más abajo si se ha lanzado; el filtro `paths:` y la
-  caché de `.next/cache` solo se pueden comprobar en un runner real. No se pasó `actionlint`.
+- **Verificado en GitHub Actions:** lanzado con `workflow_dispatch` sobre `main`
+  ([ejecución 37543369357](https://github.com/Cosmichomeless/QueueLab/actions/runs/37543369357)): el job
+  `Frontend lint, typecheck, test and build` terminó en verde en 52 s.
+- **No verificado:** el disparo por `pull_request` con el filtro `paths:` (la ejecución fue manual), el acierto de la
+  caché de `.next/cache` (solo se ve en una segunda ejecución) y el fallo en rojo en un runner real (los fallos se
+  provocaron en local). No se pasó `actionlint`.
 - **Pendiente de configuración manual:** marcar el check como obligatorio en la protección de `main` (ver arriba).
