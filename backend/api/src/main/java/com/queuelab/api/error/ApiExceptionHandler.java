@@ -12,6 +12,8 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -19,6 +21,8 @@ import com.queuelab.api.job.IdempotencyConflictException;
 import com.queuelab.api.job.InvalidRequestException;
 import com.queuelab.api.job.JobNotFoundException;
 import com.queuelab.api.job.JobNotRetryableException;
+import com.queuelab.api.job.UnsupportedUploadTypeException;
+import com.queuelab.api.job.UploadTooLargeException;
 
 /**
  * Formato único de errores de la API: {@code application/problem+json} (RFC 9457).
@@ -56,6 +60,33 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return badRequest(ex.getMessage());
     }
 
+    @ExceptionHandler(UploadTooLargeException.class)
+    ProblemDetail uploadTooLarge(UploadTooLargeException ex) {
+        return payloadTooLarge(ex.getMessage());
+    }
+
+    @ExceptionHandler(UnsupportedUploadTypeException.class)
+    ProblemDetail unsupportedUpload(UnsupportedUploadTypeException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ex.getMessage());
+        problem.setTitle("Tipo de fichero no admitido");
+        return problem;
+    }
+
+    /** El contenedor corta la subida al superar el límite de multipart, antes de que llegue al servicio. */
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ProblemDetail problem = payloadTooLarge("El fichero supera el tamaño máximo permitido");
+        return handleExceptionInternal(ex, problem, headers, HttpStatus.CONTENT_TOO_LARGE, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMissingServletRequestPart(MissingServletRequestPartException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ProblemDetail problem = badRequest("Falta la parte '" + ex.getRequestPartName() + "' de la petición");
+        return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
+    }
+
     /** Cuerpo ausente, JSON mal formado o con tipos incorrectos. No se refleja el mensaje de Jackson. */
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
@@ -86,6 +117,12 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static ProblemDetail badRequest(String detail) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
         problem.setTitle("Petición no válida");
+        return problem;
+    }
+
+    private static ProblemDetail payloadTooLarge(String detail) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONTENT_TOO_LARGE, detail);
+        problem.setTitle("Fichero demasiado grande");
         return problem;
     }
 }

@@ -169,6 +169,37 @@ parcial hace que dos peticiones simultáneas con la misma clave produzcan un sol
 la subida de CSV (#29) añadirá el hash del archivo. La validación del cuerpo va antes que la
 búsqueda de la clave.
 
+### Subida de CSV (`POST /api/v1/jobs/csv`)
+
+Crea un trabajo `csv-import` a partir de un fichero. Es `multipart/form-data` con la parte `file`:
+
+```bash
+curl -i -F "file=@datos.csv;type=text/csv" http://localhost:8080/api/v1/jobs/csv
+```
+
+Responde `201` con el trabajo en `QUEUED` y `Location`, sin esperar al procesamiento. El servicio guarda el fichero en
+el [almacenamiento](#almacenamiento-de-ficheros) como `inputs/<jobId>.csv` (el nombre del cliente se descarta), apunta
+`jobs.input_ref` a esa referencia y escribe trabajo + evento del outbox en una sola transacción.
+
+| Caso | Respuesta |
+|---|---|
+| CSV válido (`text/csv`, o extensión `.csv` con cualquier `Content-Type`) | `201` |
+| Supera `queuelab.csv.max-file-size` (10 MiB) | `413` |
+| No se declara como CSV (ni `Content-Type` ni extensión) | `415` |
+| Petición que no es `multipart/form-data` | `415` |
+| Falta la parte `file`, fichero vacío, primera línea en blanco o demasiado larga (>64 KiB), o no UTF-8 | `400` |
+
+- **Sin huérfanos**: todo lo comprobable se comprueba antes de escribir. El límite de tamaño se aplica dos veces (el
+  límite de multipart del contenedor corta la subida y el servicio la vuelve a comprobar), así que un fichero grande
+  no llega a guardarse. Si la transacción falla después de guardar el fichero, este se borra. Solo una caída del
+  proceso justo entre ambos pasos podría dejar un fichero sin trabajo; la limpieza de #32 lo recoge.
+- **Validación mínima en la subida**: tipo declarado, tamaño, no vacío y primera línea UTF-8 no vacía. La cabecera
+  completa (nombres, duplicados, nº de columnas) y las filas se validan al procesar (#30/#32), que es donde se conocen
+  las reglas de [`docs/csv-workload.md`](../docs/csv-workload.md).
+- Esta ruta **no admite `Idempotency-Key`** (habría que leer todo el fichero para la huella); un reenvío crea otro trabajo.
+- Configuración: `queuelab.csv.max-file-size` (por defecto `10MB`; `spring.servlet.multipart.max-request-size` queda en `11MB`,
+  súbelo también si subes el límite del fichero).
+
 ## Pruebas del ciclo de vida
 
 `JobLifecycleApiTest` recorre el ciclo completo contra un PostgreSQL real (Testcontainers) cuyo

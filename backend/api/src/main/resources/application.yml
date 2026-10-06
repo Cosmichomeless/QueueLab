@@ -1,6 +1,11 @@
 spring:
   application:
     name: queuelab-api
+  servlet:
+    multipart:
+      max-file-size: ${queuelab.csv.max-file-size}
+      # Algo mayor que el fichero: deja sitio a las cabeceras de la parte y a campos accesorios.
+      max-request-size: 11MB
   datasource:
     url: ${QUEUELAB_DB_URL:jdbc:postgresql://localhost:5434/queuelab}
     username: ${QUEUELAB_DB_USER:queuelab}
@@ -28,6 +33,11 @@ queuelab:
       interval: 1s
     batch-size: 50
     confirm-timeout: 5s
+
+  csv:
+    # Tamaño máximo del CSV subido (ver docs/csv-workload.md). Se aplica dos veces: el límite de multipart corta
+    # la subida en el contenedor y el servicio la vuelve a comprobar.
+    max-file-size: 10MB
 
 management:
   health:

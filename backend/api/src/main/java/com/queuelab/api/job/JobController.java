@@ -3,6 +3,7 @@ package com.queuelab.api.job;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -10,8 +11,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.queuelab.core.job.Job;
@@ -22,9 +25,11 @@ import com.queuelab.core.job.JobStatus;
 public class JobController {
 
     private final JobService service;
+    private final CsvUploadService csvUploads;
 
-    public JobController(JobService service) {
+    public JobController(JobService service, CsvUploadService csvUploads) {
         this.service = service;
+        this.csvUploads = csvUploads;
     }
 
     /**
@@ -47,6 +52,19 @@ public class JobController {
         }
         return ResponseEntity.ok().location(location).header("Idempotent-Replayed", "true")
                 .body(JobResponse.from(job));
+    }
+
+    /**
+     * Sube un CSV ({@code multipart/form-data}, parte {@code file}) y crea el trabajo {@code csv-import} en
+     * {@code QUEUED}: responde {@code 201} sin esperar al procesamiento. Rechaza con {@code 413} lo que supere
+     * el tamaño máximo, {@code 415} lo que no se declare como CSV y {@code 400} un fichero vacío o que no sea
+     * UTF-8; en ningún caso queda un fichero guardado. Ver {@code docs/csv-workload.md}.
+     */
+    @PostMapping(path = "/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<JobResponse> uploadCsv(@RequestPart(name = "file", required = false) MultipartFile file) {
+        Job job = csvUploads.upload(file);
+        var location = ServletUriComponentsBuilder.fromCurrentRequest().replacePath("/api/v1/jobs/{id}").build(job.id());
+        return ResponseEntity.created(location).body(JobResponse.from(job));
     }
 
     /**

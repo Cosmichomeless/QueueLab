@@ -29,6 +29,13 @@ Un tipo nuevo se añade a la lista en el mismo cambio que su ejecutor, nunca ant
 | Filas | Cada fila debe tener tantos campos como la cabecera. Un fichero con solo cabecera es válido (0 filas). Las líneas totalmente vacías al final se ignoran. |
 | Tipo declarado | `Content-Type: text/csv` (o extensión `.csv`); lo demás se rechaza al subir. |
 
+## Subida
+
+`POST /api/v1/jobs/csv`, `multipart/form-data` con la parte `file` (ver [`backend/README.md`](../backend/README.md#subida-de-csv-post-apiv1jobscsv)).
+201 con el trabajo `QUEUED`; 413 si supera el tamaño máximo; 415 si no se declara como CSV; 400 si está vacío, no es UTF-8 o
+la primera línea está en blanco. Un rechazo no deja ficheros ni trabajos. En la subida solo se comprueba lo mínimo; la cabecera
+completa y las filas se validan al procesar.
+
 ## Límites
 
 | Límite | Valor por defecto | Dónde se aplica |
