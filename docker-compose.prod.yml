@@ -1,0 +1,72 @@
+# Configuración "pública" de QueueLab (#59): se APLICA ENCIMA de docker-compose.yml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --wait
+#
+# Qué cambia respecto al Compose de desarrollo (ver docs/deployment/secrets-tls-access.md):
+#   - Las contraseñas NO tienen valor por defecto: si falta una, Compose se niega a arrancar.
+#   - PostgreSQL, RabbitMQ, Redis, la API y el dashboard dejan de publicar puertos en el host.
+#   - Un único punto de entrada, Caddy, termina HTTPS y exige usuario y contraseña (Basic) antes de llegar a nada.
+#   - Dashboard y API se sirven bajo el MISMO origen (https://<dominio>/ y https://<dominio>/api/v1/...).
+# Los puertos de Prometheus y Grafana (perfil `observability`) siguen en 127.0.0.1 y no pasan por Caddy.
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env.production}
+    ports: !reset []
+
+  rabbitmq:
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD en .env.production}
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  api:
+    environment:
+      QUEUELAB_DB_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env.production}
+      QUEUELAB_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD en .env.production}
+      # Mismo origen que el dashboard: el navegador no hace peticiones entre orígenes y CORS no se usa.
+      QUEUELAB_CORS_ALLOWED_ORIGINS: ${QUEUELAB_PUBLIC_URL:?defina QUEUELAB_PUBLIC_URL en .env.production}
+    ports: !reset []
+
+  worker:
+    environment:
+      QUEUELAB_DB_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env.production}
+      QUEUELAB_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD en .env.production}
+
+  dashboard:
+    environment:
+      # URL de la API tal como la ve el navegador: el mismo origen público (Caddy reparte /api/ hacia la API).
+      QUEUELAB_API_URL: ${QUEUELAB_PUBLIC_URL:?defina QUEUELAB_PUBLIC_URL en .env.production}
+    ports: !reset []
+
+  grafana:
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina GRAFANA_PASSWORD en .env.production}
+
+  # Único servicio con puertos en el host. Por defecto escucha SOLO en 127.0.0.1; poner QUEUELAB_BIND=0.0.0.0 es la
+  # decisión consciente de abrirlo a la red (ver la política de acceso en el documento).
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      QUEUELAB_DOMAIN: ${QUEUELAB_DOMAIN:-localhost}
+      QUEUELAB_BASIC_AUTH_USER: ${QUEUELAB_BASIC_AUTH_USER:?defina QUEUELAB_BASIC_AUTH_USER en .env.production}
+      QUEUELAB_BASIC_AUTH_HASH: ${QUEUELAB_BASIC_AUTH_HASH:?defina QUEUELAB_BASIC_AUTH_HASH (hash bcrypt) en .env.production}
+    ports:
+      - "${QUEUELAB_BIND:-127.0.0.1}:${QUEUELAB_HTTPS_PORT:-443}:443"
+      - "${QUEUELAB_BIND:-127.0.0.1}:${QUEUELAB_HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

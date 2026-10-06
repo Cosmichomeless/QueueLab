@@ -126,7 +126,8 @@ El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/
 - **Desplegado:** nada. No hay demo pública ni entorno alojado.
 - **Solo local:** Docker Compose con credenciales de desarrollo y puertos en `127.0.0.1`; no está pensado para exponerse.
 - **Decidido:** presupuesto de 0 €, sin entorno permanente; el stack es el propio Compose, probable en Codespaces. Servicios, costes y límites en [`docs/deployment/services-and-costs.md`](docs/deployment/services-and-costs.md).
-- **Pendiente:** secretos y TLS, migraciones en un entorno, despliegue, smoke checks y release v1.0.0 (issues #59–#63).
+- **Configuración pública probada en local:** `docker-compose.prod.yml` obliga a inyectar los secretos, pone HTTPS y usuario/contraseña delante de todo. No hay certificado real ni entorno público: [`docs/deployment/secrets-tls-access.md`](docs/deployment/secrets-tls-access.md).
+- **Pendiente:** migraciones en un entorno, despliegue, smoke checks y release v1.0.0 (issues #60–#63).
 
 ## Licencia
 

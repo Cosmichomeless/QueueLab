@@ -1,0 +1,21 @@
+# Punto de entrada público de QueueLab (#59). Lo monta docker-compose.prod.yml; ver docs/deployment/secrets-tls-access.md.
+#
+# - Con un dominio real, Caddy obtiene y renueva solo el certificado (Let's Encrypt; necesita los puertos 80 y 443
+#   alcanzables desde Internet). Con `localhost` usa su CA interna: el navegador avisará de que no la conoce.
+# - Basic Auth delante de TODO: sin credenciales no se llega ni al dashboard ni a la API (H3 de la revisión de seguridad).
+# - Solo se reenvía /api/v1/*: /actuator y cualquier otra ruta de la API no son accesibles desde fuera.
+{$QUEUELAB_DOMAIN:localhost} {
+	encode zstd gzip
+
+	basic_auth {
+		{$QUEUELAB_BASIC_AUTH_USER} {$QUEUELAB_BASIC_AUTH_HASH}
+	}
+
+	handle /api/v1/* {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy dashboard:3000
+	}
+}
