@@ -1,0 +1,15 @@
+# El contexto de build de las imágenes del backend es esta carpeta (backend/).
+# Fuera todo lo que no hace falta para compilar: acelera el envío del contexto y evita
+# que ficheros locales (binarios previos, datos de prueba, logs) acaben en una capa.
+**/target
+**/data
+**/*.log
+**/.idea
+**/.vscode
+**/*.iml
+**/.DS_Store
+**/.env
+**/.env.*
+**/Dockerfile
+**/Dockerfile.*
+.dockerignore
