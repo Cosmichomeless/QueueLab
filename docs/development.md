@@ -85,4 +85,5 @@ Se regeneran con `./scripts/screenshots.sh`; el comando y sus requisitos están 
 - [`compose-stack.md`](compose-stack.md): stack completo (API, worker, dashboard, PostgreSQL, RabbitMQ y Redis) con `docker compose up`.
 - [`deployment/services-and-costs.md`](deployment/services-and-costs.md): dónde correría fuera del portátil con 0 €, quién opera cada pieza, costes y límites.
 - [`deployment/secrets-tls-access.md`](deployment/secrets-tls-access.md): secretos fuera de Git, HTTPS con Caddy y política de acceso a la API (`docker-compose.prod.yml`).
+- [`deployment/data-services-and-backups.md`](deployment/data-services-and-backups.md): migraciones de Flyway, copia y restauración (`scripts/backup.sh`, `scripts/restore.sh`), retención y durabilidad de colas y DLQ.
 - [`notas-originales.md`](notas-originales.md): notas de partida del proyecto.

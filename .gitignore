@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Ficheros subidos y resultados del almacenamiento local
 data/
+
+# Copias de seguridad de scripts/backup.sh (#60)
+/backups/
