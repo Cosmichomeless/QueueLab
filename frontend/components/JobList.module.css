@@ -1,0 +1,16 @@
+.header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.controls { display: flex; align-items: center; gap: 12px; }
+.message { padding: 24px; border: 1px dashed var(--border); border-radius: 8px; text-align: center; color: var(--muted); }
+.error { color: #9b1c1c; border-color: #f2b1b1; }
+.error p { margin-bottom: 8px; }
+.tableWrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.table th, .table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.table tbody tr:last-child td { border-bottom: none; }
+.table th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.id { font-family: var(--font-geist-mono), monospace; text-decoration: underline; }
+.more { margin-top: 16px; }
+
+@media (prefers-color-scheme: dark) {
+  .error { color: #f5a8a8; border-color: #7a2c2c; }
+}

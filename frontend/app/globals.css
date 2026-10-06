@@ -1,12 +1,16 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --muted: #5f6368;
+  --border: #d9dce1;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --muted: #9aa0a6;
+    --border: #2c2f34;
   }
 }
 
@@ -46,4 +50,28 @@ a {
   html {
     color-scheme: dark;
   }
+}
+
+button,
+select {
+  font: inherit;
+  padding: 6px 12px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
 }

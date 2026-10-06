@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
+import styles from "./layout.module.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,7 +22,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="es" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <header className={styles.header}>
+          <Link href="/jobs" className={styles.brand}>
+            QueueLab
+          </Link>
+          <nav aria-label="Principal">
+            <Link href="/jobs">Trabajos</Link>
+          </nav>
+        </header>
+        <main className={styles.main}>{children}</main>
+      </body>
     </html>
   );
 }

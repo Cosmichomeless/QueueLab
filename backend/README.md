@@ -59,6 +59,7 @@ Ambos procesos leen las URLs y credenciales de variables de entorno
 | `QUEUELAB_RABBITMQ_USER` | `queuelab` | Usuario de RabbitMQ |
 | `QUEUELAB_RABBITMQ_PASSWORD` | _(vacío)_ | Contraseña de RabbitMQ |
 | `QUEUELAB_STORAGE_DIRECTORY` | `./data/storage` | Directorio del almacenamiento de ficheros (API y worker deben compartirlo; ver [Almacenamiento](#almacenamiento-de-ficheros)) |
+| `QUEUELAB_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Solo la API. Orígenes del dashboard que pueden llamarla desde el navegador (CORS, solo en `/api/**`, métodos `GET` y `POST`), separados por comas; vacío desactiva CORS. Cualquier otro origen recibe 403. |
 
 ### Perfiles y ficheros de ejemplo
 

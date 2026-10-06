@@ -34,6 +34,10 @@ queuelab:
     batch-size: 50
     confirm-timeout: 5s
 
+  cors:
+    # Orígenes del dashboard que pueden llamar a la API desde el navegador (separados por comas; vacío = ninguno).
+    allowed-origins: ${QUEUELAB_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
   csv:
     # Tamaño máximo del CSV subido (ver docs/csv-workload.md). Se aplica dos veces: el límite de multipart corta
     # la subida en el contenedor y el servicio la vuelve a comprobar.

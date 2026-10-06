@@ -101,7 +101,9 @@ npm ci
 npm run dev                           # http://localhost:3000
 ```
 
-Otros scripts: `npm run lint`, `npm run typecheck`, `npm run build`.
+Otros scripts: `npm run lint`, `npm run typecheck`, `npm run build`. El dashboard llama a la API desde el
+navegador (`NEXT_PUBLIC_API_URL`), así que la API debe admitir su origen: por defecto `http://localhost:3000`
+(`QUEUELAB_CORS_ALLOWED_ORIGINS`). Detalles en [`frontend/README.md`](frontend/README.md).
 
 ### Parar y limpiar
 
