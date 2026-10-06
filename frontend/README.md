@@ -30,8 +30,8 @@ recompilar. Las llamadas salen del navegador, por lo que la API debe permitir el
 | `components/CsvUploadForm.tsx` | Formulario (componente de cliente): validación, envío, errores y navegación al detalle. |
 | `components/JobList.tsx` | Lista (componente de cliente): carga, vacío, error, filtro y paginación. |
 | `components/StatusBadge.tsx` | Etiqueta de estado con color y texto (no solo color). |
-| `lib/api.ts` | Tipos de la API, `ApiError` (mensaje del `problem+json` o de red), `listJobs`, `getJob`, `uploadCsv` y `downloadHref`. |
-| `lib/jobs.ts` | `isActive(status)` y `POLL_INTERVAL_MS` (2 s), la cadencia del seguimiento. |
+| `lib/api.ts` | Tipos de la API, `ApiError` (mensaje del `problem+json` o de red), `listJobs`, `getJob`, `retryJob`, `uploadCsv` y `downloadHref`. |
+| `lib/jobs.ts` | `isActive(status)`, `canRetry(job)` y `POLL_INTERVAL_MS` (2 s), la cadencia del seguimiento. |
 | `lib/csv.ts` | Validación de un CSV en el cliente (`validateCsvFile`) y su límite de tamaño. |
 | `lib/format.ts` | Etiquetas de estado en español, formato de fechas y de tamaños. |
 
@@ -85,7 +85,7 @@ Es a donde llevan los enlaces de la lista y la redirección tras enviar un CSV. 
 | `RUNNING` | «Un worker lo está procesando. Se actualiza solo.» |
 | `RETRYING` | «El intento anterior falló; se volverá a ejecutar.» y, si la API lo da, «Último fallo» con el motivo. |
 | `COMPLETED` | Bloque «Resultado» con el texto y, si hay `resultFile`, el enlace de descarga (nombre, tipo y tamaño). |
-| `FAILED` | Bloque «Fallo» con el `error` del trabajo. |
+| `FAILED` | Bloque «Fallo» con el `error` del trabajo y el botón «Reintentar trabajo». |
 
 **Seguimiento sin recargar**: mientras el estado sea `QUEUED`, `RUNNING` o `RETRYING` se vuelve a pedir el trabajo
 cada `POLL_INTERVAL_MS` (2 s) con un `setTimeout` encadenado (no se solapan peticiones). Al llegar a `COMPLETED` o
@@ -102,3 +102,15 @@ Errores:
 
 La descarga apunta directamente a la API (`API_URL` + `downloadUrl`); es de otro origen, así que el navegador se
 apoya en el `Content-Disposition: attachment` de la API.
+
+### Reintento de un trabajo fallido
+
+El botón «Reintentar trabajo» solo aparece con el trabajo en `FAILED` (`canRetry`), igual que la API, que responde
+409 a cualquier otro estado. Llama a `POST /api/v1/jobs/{id}/retry`, que devuelve **el mismo trabajo** a la cola.
+
+| Momento | Qué pasa en la pantalla |
+|---|---|
+| Mientras se envía | El botón pasa a «Reintentando…» y se deshabilita: un doble clic envía una sola petición. |
+| 202 | Se muestra el trabajo ya en `En cola` con 0 intentos, el aviso «Reintento solicitado…» y desaparece el botón. Se retoma el seguimiento automático, así que el nuevo ciclo (`QUEUED → RUNNING → …`) se ve sin recargar. |
+| 409 (otro lo reintentó antes, o ya no es `FAILED`) | Alerta con el motivo de la API y se vuelve a pedir el trabajo para mostrar su estado real. |
+| Error de red u otro | Alerta «No se pudo reintentar: …»; el botón sigue activo para volver a intentarlo. |

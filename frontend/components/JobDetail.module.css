@@ -10,11 +10,16 @@
 .panel h2 { font-size: 1rem; margin-bottom: 6px; }
 .failure { border-color: #f2b1b1; }
 .failure p { color: #9b1c1c; white-space: pre-wrap; word-break: break-word; }
+.notice { padding: 8px 12px; border: 1px solid #a9e0b9; border-radius: 6px; background: #dcf5e3; color: #146c2e; margin-bottom: 16px; }
+.failure button { margin-top: 10px; }
+.retryError { padding: 8px 12px; border: 1px solid #f2b1b1; border-radius: 6px; background: #fde0e0; color: #9b1c1c; margin-bottom: 16px; }
 .download { text-decoration: underline; font-weight: 600; }
 .muted { color: var(--muted); font-size: 0.9rem; }
 
 @media (prefers-color-scheme: dark) {
   .error, .failure p { color: #f5a8a8; }
   .error, .failure { border-color: #7a2c2c; }
+  .notice { background: #14391f; color: #92dba7; border-color: #1f5a30; }
+  .retryError { background: #4a1a1a; color: #f5a8a8; border-color: #7a2c2c; }
   .warning { background: #4a3a10; color: #f3d98f; border-color: #6e561a; }
 }

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ApiError, downloadHref, getJob, type Job } from "@/lib/api";
+import { ApiError, downloadHref, getJob, retryJob, type Job } from "@/lib/api";
 import { formatBytes, formatDate, shortId } from "@/lib/format";
-import { isActive, POLL_INTERVAL_MS } from "@/lib/jobs";
+import { canRetry, isActive, POLL_INTERVAL_MS } from "@/lib/jobs";
 import { StatusBadge } from "./StatusBadge";
 import styles from "./JobDetail.module.css";
 
@@ -20,9 +20,12 @@ const PROGRESS: Record<"QUEUED" | "RUNNING" | "RETRYING", string> = {
   RETRYING: "El intento anterior falló; se volverá a ejecutar.",
 };
 
+type Retry = { phase: "idle" } | { phase: "sending" } | { phase: "requested" } | { phase: "error"; message: string };
+
 export function JobDetail({ id }: { id: string }) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [reloads, setReloads] = useState(0);
+  const [retry, setRetry] = useState<Retry>({ phase: "idle" });
 
   // Pide el trabajo y, mientras no sea final, repite cada POLL_INTERVAL_MS. El cleanup cancela el temporizador y
   // descarta la respuesta en vuelo (cambio de id, recarga manual o salida de la página).
@@ -63,6 +66,21 @@ export function JobDetail({ id }: { id: string }) {
     setReloads((n) => n + 1);
   }
 
+  async function requestRetry() {
+    if (retry.phase === "sending") return;
+    setRetry({ phase: "sending" });
+    try {
+      const job = await retryJob(id);
+      setState({ phase: "ready", job, refreshError: null });
+      setRetry({ phase: "requested" });
+    } catch (error) {
+      setRetry({ phase: "error", message: error instanceof ApiError ? error.message : "Error inesperado" });
+    }
+    // Con éxito, el trabajo vuelve a estar activo y hay que retomar el seguimiento; con error (p. ej. 409 porque otro
+    // ya lo reintentó) se vuelve a pedir para mostrar el estado real y no uno desfasado.
+    setReloads((n) => n + 1);
+  }
+
   return (
     <section aria-labelledby="job-title">
       <p>
@@ -91,12 +109,24 @@ export function JobDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {state.phase === "ready" && <Ready job={state.job} refreshError={state.refreshError} />}
+      {state.phase === "ready" && (
+        <Ready job={state.job} refreshError={state.refreshError} retry={retry} onRetry={requestRetry} />
+      )}
     </section>
   );
 }
 
-function Ready({ job, refreshError }: { job: Job; refreshError: string | null }) {
+function Ready({
+  job,
+  refreshError,
+  retry,
+  onRetry,
+}: {
+  job: Job;
+  refreshError: string | null;
+  retry: Retry;
+  onRetry: () => void;
+}) {
   const active = isActive(job.status);
   return (
     <>
@@ -110,6 +140,18 @@ function Ready({ job, refreshError }: { job: Job; refreshError: string | null })
               : "El trabajo ha fallado."}
         </span>
       </div>
+
+      {retry.phase === "error" && (
+        <p role="alert" className={styles.retryError}>
+          No se pudo reintentar: {retry.message}
+        </p>
+      )}
+
+      {retry.phase === "requested" && job.status !== "FAILED" && (
+        <p role="status" className={styles.notice}>
+          Reintento solicitado: el trabajo ha vuelto a la cola con sus intentos a cero.
+        </p>
+      )}
 
       {refreshError && (
         <p role="alert" className={styles.warning}>
@@ -155,6 +197,11 @@ function Ready({ job, refreshError }: { job: Job; refreshError: string | null })
         <section aria-labelledby="error-title" className={`${styles.panel} ${styles.failure}`}>
           <h2 id="error-title">{job.status === "FAILED" ? "Fallo" : "Último fallo"}</h2>
           <p>{job.error ?? "Sin detalle del error."}</p>
+          {canRetry(job) && (
+            <button type="button" onClick={onRetry} disabled={retry.phase === "sending"}>
+              {retry.phase === "sending" ? "Reintentando…" : "Reintentar trabajo"}
+            </button>
+          )}
         </section>
       )}
     </>

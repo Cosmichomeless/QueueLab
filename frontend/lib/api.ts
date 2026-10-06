@@ -87,3 +87,8 @@ export function getJob(id: string) {
 export function downloadHref(file: ResultFile): string {
   return `${API_URL}${file.downloadUrl}`;
 }
+
+/** Devuelve a la cola un trabajo `FAILED` (mismo id). La API responde 202 con el trabajo en `QUEUED`, o 409 si no es elegible. */
+export function retryJob(id: string) {
+  return request<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
+}
