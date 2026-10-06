@@ -118,3 +118,4 @@ docker compose down -v                # borra también los volúmenes
 
 - [`backend/README.md`](backend/README.md): variables `QUEUELAB_*`, perfiles y migraciones.
 - [`.env.example`](.env.example) y [`frontend/.env.example`](frontend/.env.example): todas las variables explicadas.
+- [`docs/performance/benchmark-results.md`](docs/performance/benchmark-results.md): benchmark de throughput y latencia según el límite de concurrencia del worker (reproducible con `docs/performance/benchmark.py`).

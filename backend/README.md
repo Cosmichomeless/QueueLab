@@ -105,6 +105,14 @@ búsqueda de leases ya usaban índices adecuados (V2, V3, V10); la migración `V
 para la limpieza de ficheros, que pasa de recorrer toda la tabla (23–55 ms) a menos de 0,3 ms. El documento incluye
 los pasos para reproducir la comparación (`docs/performance/seed-jobs.sql` y `explain-queries.sql`).
 
+### Benchmark de throughput y latencia
+
+[`docs/performance/benchmark-results.md`](../docs/performance/benchmark-results.md) publica el escenario, el hardware y
+las métricas medidas con el script reproducible `docs/performance/benchmark.py`. Resumen en un Apple M4 Pro (12 núcleos)
+con CSV de 8,6 MiB: `queuelab.worker.concurrency` de 1 a 8 sube el throughput de 8,3 a 40,2 trabajos/s (4,8×); de 8 a
+16 no sube y **duplica la latencia por trabajo** (133 → 272 ms). Para trabajos muy cortos el techo es el outbox
+(≈ 49 eventos/s por defecto), no el worker.
+
 ## Modelo de trabajos (`core`)
 
 La tabla `jobs` (migración `V2__create_jobs.sql`) guarda `id` (UUID), `type`, `status` y los
