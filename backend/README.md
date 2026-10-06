@@ -90,6 +90,14 @@ La **API** aplica las migraciones pendientes al arrancar; el worker no las ejecu
 - Las pruebas de la API levantan un PostgreSQL desechable con Testcontainers
   (requieren Docker en marcha).
 
+### Índices y planes de consulta
+
+Los índices de `jobs` se justifican con planes medidos sobre 1.000.000 de filas
+([`docs/performance/query-plans.md`](../docs/performance/query-plans.md)): el listado paginado, `countWaiting` y la
+búsqueda de leases ya usaban índices adecuados (V2, V3, V10); la migración `V13` añade cuatro índices parciales
+para la limpieza de ficheros, que pasa de recorrer toda la tabla (23–55 ms) a menos de 0,3 ms. El documento incluye
+los pasos para reproducir la comparación (`docs/performance/seed-jobs.sql` y `explain-queries.sql`).
+
 ## Modelo de trabajos (`core`)
 
 La tabla `jobs` (migración `V2__create_jobs.sql`) guarda `id` (UUID), `type`, `status` y los
