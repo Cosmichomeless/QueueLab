@@ -85,4 +85,35 @@ class JobRepositoryTest {
                 """))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    void fileReferencesAreStoredAsTextAndNeverTheContent() {
+        Job job = Job.queued(UUID.randomUUID(), "csv-import", now());
+        repository.insert(job);
+        assertThat(repository.findInputRef(job.id())).isEmpty();
+        assertThat(repository.findResultRef(job.id())).isEmpty();
+
+        assertThat(repository.attachInput(job.id(), "inputs/" + job.id() + ".csv")).isTrue();
+        assertThat(repository.attachResult(job.id(), "results/" + job.id() + ".stats.json")).isTrue();
+
+        assertThat(repository.findInputRef(job.id())).contains("inputs/" + job.id() + ".csv");
+        assertThat(repository.findResultRef(job.id())).contains("results/" + job.id() + ".stats.json");
+        assertThat(repository.findById(job.id())).contains(job);
+        // Las columnas son varchar(255): no hay sitio para guardar un fichero en PostgreSQL.
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'jobs' AND column_name IN ('input_ref', 'result_ref')
+                  AND data_type = 'character varying' AND character_maximum_length = 255
+                """, String.class)).containsExactlyInAnyOrder("input_ref", "result_ref");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'jobs' AND data_type IN ('bytea', 'oid', 'text')
+                """, String.class)).isEmpty();
+    }
+
+    @Test
+    void attachingToAnUnknownJobChangesNothing() {
+        assertThat(repository.attachInput(UUID.randomUUID(), "inputs/x.csv")).isFalse();
+        assertThat(repository.attachResult(UUID.randomUUID(), "results/x.json")).isFalse();
+    }
 }

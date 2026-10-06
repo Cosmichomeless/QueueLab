@@ -67,6 +67,36 @@ public class JobRepository {
                 .optional();
     }
 
+    /** Guarda la referencia al fichero de entrada del trabajo (nunca el contenido). */
+    public boolean attachInput(UUID id, String reference) {
+        return jdbc.sql("UPDATE jobs SET input_ref = :ref WHERE id = :id")
+                .param("ref", reference)
+                .param("id", id)
+                .update() == 1;
+    }
+
+    /** Guarda la referencia al fichero de resultado del trabajo. */
+    public boolean attachResult(UUID id, String reference) {
+        return jdbc.sql("UPDATE jobs SET result_ref = :ref WHERE id = :id")
+                .param("ref", reference)
+                .param("id", id)
+                .update() == 1;
+    }
+
+    public Optional<String> findInputRef(UUID id) {
+        return jdbc.sql("SELECT input_ref FROM jobs WHERE id = :id AND input_ref IS NOT NULL")
+                .param("id", id)
+                .query(String.class)
+                .optional();
+    }
+
+    public Optional<String> findResultRef(UUID id) {
+        return jdbc.sql("SELECT result_ref FROM jobs WHERE id = :id AND result_ref IS NOT NULL")
+                .param("id", id)
+                .query(String.class)
+                .optional();
+    }
+
     public Optional<Job> findById(UUID id) {
         return jdbc.sql("SELECT * FROM jobs WHERE id = :id")
                 .param("id", id)

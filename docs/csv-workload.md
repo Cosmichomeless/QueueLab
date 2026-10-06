@@ -76,5 +76,7 @@ El mensaje de error nunca incluye el contenido de las filas, solo la línea y el
 
 ## Ficheros temporales
 
-El CSV subido y el fichero de estadísticas viven en el directorio configurado (#28). La política de limpieza
+El CSV subido y el fichero de estadísticas viven en el directorio configurado de `FileStorage`
+(`queuelab.storage.directory`, ver [`backend/README.md`](../backend/README.md#almacenamiento-de-ficheros)) bajo
+`inputs/` y `results/`; el nombre lo asigna el sistema (`<jobId>`), nunca el cliente. La política de limpieza
 (cuánto tiempo se conservan y qué se borra al fallar) se detalla en #32.

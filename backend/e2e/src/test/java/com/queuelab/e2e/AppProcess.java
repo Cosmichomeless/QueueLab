@@ -28,6 +28,8 @@ final class AppProcess implements AutoCloseable {
 
         ProcessBuilder builder = new ProcessBuilder(
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-jar", jar.toString());
+        // API y worker comparten el almacenamiento, dentro de target/ para no ensuciar el árbol de trabajo.
+        builder.environment().put("QUEUELAB_STORAGE_DIRECTORY", base.resolve("target/e2e-storage").toString());
         builder.environment().putAll(env);
         builder.redirectErrorStream(true).redirectOutput(log.toFile());
         return new AppProcess(module, log, builder.start());

@@ -58,6 +58,7 @@ Ambos procesos leen las URLs y credenciales de variables de entorno
 | `QUEUELAB_RABBITMQ_PORT` | `5672` | Puerto AMQP |
 | `QUEUELAB_RABBITMQ_USER` | `queuelab` | Usuario de RabbitMQ |
 | `QUEUELAB_RABBITMQ_PASSWORD` | _(vacío)_ | Contraseña de RabbitMQ |
+| `QUEUELAB_STORAGE_DIRECTORY` | `./data/storage` | Directorio del almacenamiento de ficheros (API y worker deben compartirlo; ver [Almacenamiento](#almacenamiento-de-ficheros)) |
 
 ### Perfiles y ficheros de ejemplo
 
@@ -383,6 +384,35 @@ cuándo se pidió, cuántos intentos había consumido el ciclo anterior y su úl
 ```json
 [{"requestedAt":"2026-10-05T10:00:00Z","attempts":3,"error":"El servicio externo no responde"}]
 ```
+
+## Almacenamiento de ficheros
+
+Las entradas (p. ej. el CSV subido) y los resultados (p. ej. `<jobId>.stats.json`) no viven en PostgreSQL. `core`
+define la frontera `FileStorage` y la API y el worker dependen solo de ella; hoy hay una implementación,
+`LocalFileStorage`, que guarda en un directorio local.
+
+| Operación | Qué hace |
+|---|---|
+| `store(area, nombre, contenido)` | Guarda y devuelve `StoredFile(referencia, tamaño)`. Escribe en un temporal y lo mueve al destino: es todo o nada, un fallo a medias no deja ni el fichero ni el temporal. Reemplaza lo que hubiera (un reintento reescribe su resultado). |
+| `open(referencia)` / `size` / `exists` / `delete` | Operan por referencia; `open` y `size` lanzan `StoredFileNotFoundException` si falta. |
+
+- **Zonas**: `INPUT` → `<directorio>/inputs/`, `RESULT` → `<directorio>/results/`. La referencia es
+  `inputs/<nombre>` o `results/<nombre>`, opaca para quien la recibe.
+- **Base de datos**: `jobs.input_ref` y `jobs.result_ref` (`varchar(255)`, migración V12) guardan solo la referencia;
+  `JobRepository.attachInput/attachResult/findInputRef/findResultRef`. Nunca el contenido.
+- **Nombres**: los elige el sistema (el id del trabajo), nunca el nombre que manda el cliente. Lista blanca
+  `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` sin `..`: no admite separadores, rutas absolutas, espacios ni caracteres de control.
+- **No se puede salir del directorio**: además del formato, cada acceso normaliza la ruta, comprueba que sigue
+  dentro de `<directorio>/<zona>` y compara la ruta real, así que un enlace simbólico (al fichero o a la zona)
+  que apunte fuera se rechaza con `InvalidStorageReferenceException`. Tanto nombres como referencias pasan por esta
+  comprobación en todas las operaciones.
+- **Errores**: `InvalidStorageReferenceException` (entrada inválida, no se reintenta) y `StorageException` (E/S:
+  disco lleno, permisos; transitorio).
+- **Configuración**: `queuelab.storage.directory` / `QUEUELAB_STORAGE_DIRECTORY`, por defecto `./data/storage`
+  (relativo al directorio de trabajo del proceso y ignorado por git). API y worker **deben apuntar al mismo
+  directorio**; si corren en máquinas distintas hará falta otra implementación de `FileStorage` (p. ej. un almacén
+  de objetos), que es justo lo que esta interfaz permite. Los tests usan `target/`.
+- La política de limpieza de temporales y resultados antiguos se define en #32 (`docs/csv-workload.md`).
 
 ## Prueba de extremo a extremo (`e2e`)
 
