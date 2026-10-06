@@ -14,7 +14,7 @@ Este documento fija el contrato; lo implementan #28 (almacenamiento), #29 (subid
 | Tipo | Estado |
 |---|---|
 | `noop` | Implementado (trabajo de prueba). |
-| `csv-import` | Este documento. |
+| `csv-import` | Implementado (#30): ver [Procesamiento](../backend/README.md#procesamiento-de-csv-csv-import). |
 | Otros (`image-resize`, conversión de ficheros, análisis por lotes…) | **No implementados**: la API responde 400 con la lista de tipos admitidos. |
 
 Un tipo nuevo se añade a la lista en el mismo cambio que su ejecutor, nunca antes.
@@ -26,7 +26,7 @@ Un tipo nuevo se añade a la lista en el mismo cambio que su ejecutor, nunca ant
 | Codificación | UTF-8; se tolera un BOM inicial. Otra codificación o bytes inválidos → fallo permanente. |
 | Sintaxis | CSV según RFC 4180: separador `,`, campos entre `"` con `""` como comilla escapada y saltos de línea dentro de comillas; fin de línea `LF` o `CRLF`. |
 | Cabecera | **Obligatoria**, en la primera línea. Nombres no vacíos, sin duplicados (sin distinguir mayúsculas), de hasta 100 caracteres. Hasta **100 columnas**. |
-| Filas | Cada fila debe tener tantos campos como la cabecera. Un fichero con solo cabecera es válido (0 filas). Las líneas totalmente vacías al final se ignoran. |
+| Filas | Cada fila debe tener tantos campos como la cabecera. Un fichero con solo cabecera es válido (0 filas). Las líneas totalmente vacías al final se ignoran; en mitad solo valen si hay una columna (valor vacío). |
 | Tipo declarado | `Content-Type: text/csv` (o extensión `.csv`); lo demás se rechaza al subir. |
 
 ## Subida
@@ -42,6 +42,7 @@ completa y las filas se validan al procesar.
 |---|---|---|
 | Tamaño máximo del fichero | **10 MiB** (`queuelab.csv.max-file-size`) | En la subida, antes de guardar nada: lo que lo supere se rechaza con 413 y no deja ficheros. |
 | Columnas | 100 | Al leer la cabecera (fallo permanente si se supera). |
+| Tamaño de un campo | 1 MiB | Al leer (fallo permanente con el número de línea): evita que unas comillas sin cerrar agoten la memoria. |
 | Memoria del worker | O(columnas), **no** O(filas) | El fichero se procesa en streaming; nunca se carga entero. |
 
 No hay un límite de filas aparte: lo acota el tamaño del fichero.
@@ -76,7 +77,7 @@ Dos cosas, ambas deterministas para un mismo fichero:
 | Situación | Resultado |
 |---|---|
 | Cabecera ausente, vacía, con nombres vacíos o duplicados, o con más de 100 columnas | `FAILED` con un mensaje claro; **sin reintentos** (reintentar no cambia el fichero). |
-| Fila con distinto número de campos, o comillas sin cerrar | `FAILED` indicando el número de línea; sin reintentos (#32). |
+| Fila con distinto número de campos, o comillas sin cerrar | `FAILED` indicando el número de línea; sin reintentos (implementado en #30; los tests de filas erróneas y la limpieza, en #32/#33). |
 | Fichero no encontrado en el almacenamiento, o error de E/S | Fallo transitorio: se reintenta con espera exponencial como cualquier trabajo. |
 
 El mensaje de error nunca incluye el contenido de las filas, solo la línea y el motivo.

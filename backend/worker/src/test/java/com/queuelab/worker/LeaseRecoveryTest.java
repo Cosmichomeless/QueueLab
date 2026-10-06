@@ -60,7 +60,7 @@ class LeaseRecoveryTest {
 
     /** Un trabajo que un worker reclamó (intento {@code attempts}) y cuyo lease vence en {@code leaseEnd}. */
     private Job runningWithLease(Instant leaseEnd, int priorAttempts) {
-        Job job = Job.queued(UUID.randomUUID(), "csv-import", Instant.now().minusSeconds(600));
+        Job job = Job.queued(UUID.randomUUID(), "noop", Instant.now().minusSeconds(600));
         jobs.insert(job);
         Job current = job;
         for (int i = 0; i < priorAttempts; i++) {
@@ -170,7 +170,7 @@ class LeaseRecoveryTest {
 
     @Test
     void heartbeatKeepsTheLeaseAliveDuringALongExecution() throws Exception {
-        Job job = Job.queued(UUID.randomUUID(), "csv-import", Instant.now());
+        Job job = Job.queued(UUID.randomUUID(), "noop", Instant.now());
         jobs.insert(job);
         AtomicReference<Boolean> recoveredWhileRunning = new AtomicReference<>();
         AtomicReference<Instant> leaseAtStart = new AtomicReference<>();
@@ -194,7 +194,7 @@ class LeaseRecoveryTest {
 
     @Test
     void finishingAnAttemptClearsTheLease() {
-        Job job = Job.queued(UUID.randomUUID(), "csv-import", Instant.now());
+        Job job = Job.queued(UUID.randomUUID(), "noop", Instant.now());
         jobs.insert(job);
 
         processor.process(JobMessage.forJob(job.id()));

@@ -290,7 +290,8 @@ El worker (`backend/worker`) consume `queuelab.jobs.queued` con un `@RabbitListe
    obtiene el trabajo.
 3. Si el reclamo no devuelve nada (entrega duplicada, otro worker lo tomó, ya terminó) el mensaje se
    confirma sin ejecutar nada: no se duplican efectos. Si el trabajo ni siquiera existe, va a la DLQ.
-4. Ejecuta el `JobExecutor` (por ahora `NoopJobExecutor`) y guarda el estado terminal:
+4. Ejecuta el `JobExecutor` (`TypeRoutingJobExecutor`, que delega en el `JobHandler` del tipo del trabajo: `noop` y
+   `csv-import`; un tipo sin manejador es un fallo permanente) y guarda el estado terminal:
    - Éxito → `COMPLETED`, con `finished_at` y `result` (resumen de hasta 1000 caracteres).
    - `JobExecutionException` (fallo esperado) → `FAILED`, con su mensaje como `error` (hasta 500).
    - Cualquier otra excepción → `FAILED` con el texto genérico «Error inesperado durante la
@@ -309,6 +310,28 @@ trabajo) y `V9` `outbox_events.available_at` (publicación diferida).
 
 El worker solo **escribe** en `jobs` y `outbox_events`, con el esquema que migra la API (no incluye Flyway; los tests lo
 crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.
+
+### Procesamiento de CSV (`csv-import`)
+
+`CsvImportJobHandler` procesa el fichero que subió `POST /api/v1/jobs/csv` (contrato completo en
+[`docs/csv-workload.md`](../docs/csv-workload.md)):
+
+1. Lee `jobs.input_ref` y abre el fichero con `FileStorage.open`.
+2. Lo decodifica como UTF-8 **estricto** (bytes inválidos = error, no `?`) tolerando un BOM inicial.
+3. `CsvRecordReader` (RFC 4180, estricto) devuelve un registro cada vez; `ColumnStats` acumula por columna
+   recuentos, `min/max/sum` (con `BigDecimal`, exacto y determinista) y longitudes. **La memoria es O(columnas)**:
+   nunca hay más de una fila en memoria, y un campo se limita a 1 MiB para que unas comillas sin cerrar no
+   agoten el heap.
+4. Guarda `results/<jobId>.stats.json` (`FileStorage.store`, que reescribe si es un reintento), anota su
+   referencia en `jobs.result_ref` y deja `result` = `CSV procesado: N filas, M columnas`.
+
+| Situación | Resultado |
+|---|---|
+| Cabecera inválida (vacía, nombre vacío/duplicado/>100 caracteres, >100 columnas), fila con otro nº de campos, comillas mal cerradas, UTF-8 inválido, trabajo sin fichero | `FAILED` en el primer intento, sin reintentos. El mensaje lleva la línea y el motivo, nunca el contenido de la fila (p. ej. `Línea 3: tiene 3 campos y la cabecera 2`). |
+| Fichero de entrada ausente, error de E/S al leer o al guardar las estadísticas | Transitorio (`TransientJobException`): `RETRYING` con espera exponencial y DLQ al agotar los intentos. |
+
+Las líneas vacías al final se ignoran; una línea vacía en mitad solo es válida si el CSV tiene una columna (es un valor
+vacío). Verificado en real con un CSV de 9,8 MB (323.074 filas) con el worker limitado a `-Xmx80m`.
 
 ### Reintentos con espera exponencial
 

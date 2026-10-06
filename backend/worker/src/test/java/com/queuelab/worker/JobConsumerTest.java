@@ -85,12 +85,12 @@ class JobConsumerTest {
 
     @Test
     void validMessageLoadsTheJobFromTheDatabaseAndExecutesIt() {
-        Job job = storedJob("csv-import");
+        Job job = storedJob("noop");
 
         publish(JobMessageCodec.encode(JobMessage.forJob(job.id())));
 
         verify(executor, timeout(10_000)).execute(argThat(
-                loaded -> loaded.id().equals(job.id()) && loaded.type().equals("csv-import")));
+                loaded -> loaded.id().equals(job.id()) && loaded.type().equals("noop")));
         assertMainQueueIsEmpty();
         assertThat(rabbit.receive(JobMessagingTopology.DEAD_LETTER_QUEUE, 300)).isNull();
     }
@@ -127,12 +127,12 @@ class JobConsumerTest {
 
     @Test
     void validMessageEndsCompletedWithItsResult() {
-        Job job = storedJob("csv-import");
+        Job job = storedJob("noop");
 
         publish(JobMessageCodec.encode(JobMessage.forJob(job.id())));
 
         Job done = awaitStatus(job.id(), JobStatus.COMPLETED);
-        assertThat(done.result()).isEqualTo("Trabajo de tipo 'csv-import' completado");
+        assertThat(done.result()).isEqualTo("Trabajo de tipo 'noop' completado");
         assertThat(done.error()).isNull();
         assertThat(done.startedAt()).isNotNull();
         assertThat(done.finishedAt()).isNotNull().isAfterOrEqualTo(done.startedAt());
@@ -156,7 +156,7 @@ class JobConsumerTest {
 
     @Test
     void expectedFailureEndsFailedWithItsSummary() {
-        Job job = storedJob("csv-import");
+        Job job = storedJob("noop");
         doThrow(new JobExecutionException("El fichero CSV está vacío")).when(executor).execute(any());
 
         publish(JobMessageCodec.encode(JobMessage.forJob(job.id())));

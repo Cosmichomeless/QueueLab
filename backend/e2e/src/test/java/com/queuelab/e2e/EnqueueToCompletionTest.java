@@ -92,11 +92,11 @@ class EnqueueToCompletionTest {
     @Test
     @Order(1)
     void submittedJobEndsCompletedByTheWorker() throws Exception {
-        UUID id = submit("csv-import");
+        UUID id = submit("noop");
 
         JsonNode done = awaitStatus(id, "COMPLETED");
 
-        assertThat(done.get("result").asString()).isEqualTo("Trabajo de tipo 'csv-import' completado");
+        assertThat(done.get("result").asString()).isEqualTo("Trabajo de tipo 'noop' completado");
         assertThat(done.get("error").isNull()).isTrue();
         assertThat(done.get("startedAt").isNull()).isFalse();
         assertThat(done.get("finishedAt").isNull()).isFalse();

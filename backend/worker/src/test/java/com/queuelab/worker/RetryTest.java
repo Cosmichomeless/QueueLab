@@ -62,7 +62,7 @@ class RetryTest {
     }
 
     private Job storedJob() {
-        Job job = Job.queued(UUID.randomUUID(), "csv-import", Instant.now());
+        Job job = Job.queued(UUID.randomUUID(), "noop", Instant.now());
         jobs.insert(job);
         return job;
     }

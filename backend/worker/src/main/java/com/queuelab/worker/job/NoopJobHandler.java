@@ -8,12 +8,19 @@ import com.queuelab.core.job.Job;
 
 /** Trabajo de prueba: no hace nada útil, solo deja constancia de que el worker lo recibió. */
 @Component
-class NoopJobExecutor implements JobExecutor {
+class NoopJobHandler implements JobHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(NoopJobExecutor.class);
+    static final String TYPE = "noop";
+
+    private static final Logger log = LoggerFactory.getLogger(NoopJobHandler.class);
 
     @Override
-    public String execute(Job job) {
+    public String type() {
+        return TYPE;
+    }
+
+    @Override
+    public String handle(Job job) {
         log.info("Ejecutando trabajo {} de tipo '{}'", job.id(), job.type());
         return "Trabajo de tipo '" + job.type() + "' completado";
     }
