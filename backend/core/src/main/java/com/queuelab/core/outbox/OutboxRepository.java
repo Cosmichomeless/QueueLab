@@ -37,10 +37,11 @@ public class OutboxRepository {
     public void insert(OutboxEvent event, Instant availableAt) {
         jdbc.sql("""
                 INSERT INTO outbox_events (id, job_id, event_type, payload, created_at, published_at, attempts,
-                                           available_at)
+                                           available_at, correlation_id)
                 VALUES (:id, :jobId, :eventType, CAST(:payload AS jsonb), :createdAt, :publishedAt, :attempts,
-                        :availableAt)
+                        :availableAt, :correlationId)
                 """)
+                .param("correlationId", event.correlationId())
                 .param("availableAt", availableAt == null ? null : availableAt.atOffset(ZoneOffset.UTC))
                 .param("id", event.id())
                 .param("jobId", event.jobId())
@@ -59,7 +60,8 @@ public class OutboxRepository {
      * Debe llamarse dentro de una transacción.
      */
     public List<OutboxEvent> findPending(int limit) {
-        return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts "
+        return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts, "
+                        + "correlation_id "
                         + "FROM outbox_events WHERE published_at IS NULL "
                         + "AND (available_at IS NULL OR available_at <= now()) ORDER BY created_at, id "
                         + "LIMIT :limit FOR UPDATE SKIP LOCKED")
@@ -86,7 +88,8 @@ public class OutboxRepository {
     }
 
     public List<OutboxEvent> findByJobId(UUID jobId) {
-        return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts "
+        return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts, "
+                        + "correlation_id "
                         + "FROM outbox_events WHERE job_id = :jobId ORDER BY created_at, id")
                 .param("jobId", jobId)
                 .query(OutboxRepository::map)
@@ -102,6 +105,7 @@ public class OutboxRepository {
                 rs.getString("payload"),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 published == null ? null : published.toInstant(),
-                rs.getInt("attempts"));
+                rs.getInt("attempts"),
+                rs.getString("correlation_id"));
     }
 }

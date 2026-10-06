@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessageCodec;
 import com.queuelab.core.messaging.JobMessagingTopology;
 import com.queuelab.core.outbox.OutboxEvent;
@@ -62,20 +63,31 @@ public class OutboxDispatcher {
             List<OutboxEvent> pending = outbox.findPending(batchSize);
             int confirmed = 0;
             for (OutboxEvent event : pending) {
-                Outcome outcome = publish(event);
-                if (outcome == Outcome.CONFIRMED) {
-                    outbox.markPublished(event.id(), clock.instant());
-                    confirmed++;
-                } else {
-                    // Con el broker caído o lento no tiene sentido esperar el resto del lote.
-                    if (outcome == Outcome.BROKER_UNAVAILABLE) {
-                        break;
+                // Cada evento se publica con el id de correlación de la petición que lo originó: sus logs y
+                // la cabecera del mensaje lo llevan, así el worker y la API hablan del mismo trabajo.
+                try (LogContext.Scope ignored = LogContext.with(correlationOf(event), event.jobId())) {
+                    Outcome outcome = publish(event);
+                    if (outcome == Outcome.CONFIRMED) {
+                        outbox.markPublished(event.id(), clock.instant());
+                        log.info("Evento {} publicado en {} (trabajo {})", event.eventType(),
+                                JobMessagingTopology.routeFor(event.eventType()).exchange(), event.jobId());
+                        confirmed++;
+                    } else {
+                        // Con el broker caído o lento no tiene sentido esperar el resto del lote.
+                        if (outcome == Outcome.BROKER_UNAVAILABLE) {
+                            break;
+                        }
                     }
                 }
             }
             return confirmed;
         });
         return published == null ? 0 : published;
+    }
+
+    /** El id del evento; los anteriores a V14 no lo tienen y se publican con uno nuevo. */
+    private static String correlationOf(OutboxEvent event) {
+        return event.correlationId() != null ? event.correlationId() : LogContext.newCorrelationId();
     }
 
     private enum Outcome { CONFIRMED, REJECTED, BROKER_UNAVAILABLE }
@@ -89,7 +101,7 @@ public class OutboxDispatcher {
             return fail(event, Outcome.REJECTED, e.getMessage());
         }
         try {
-            rabbit.send(route.exchange(), route.routingKey(), JobMessageCodec.encodeJson(event.payload()),
+            rabbit.send(route.exchange(), route.routingKey(), JobMessageCodec.encodeJson(event.payload(), LogContext.correlationId()),
                     correlation);
             CorrelationData.Confirm confirm = correlation.getFuture().get(confirmTimeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!confirm.isAck()) {

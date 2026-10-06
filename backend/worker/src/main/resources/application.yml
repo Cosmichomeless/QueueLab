@@ -19,3 +19,12 @@ spring:
     web-application-type: none
     # Mantiene viva la JVM aunque aún no haya consumidores registrados.
     keep-alive: true
+
+logging:
+  # QUEUELAB_LOG_FORMAT=logstash (o ecs) emite el log como una línea JSON con el MDC (correlationId, jobId);
+  # vacío, texto legible con el id de correlación y el del trabajo tras el nivel.
+  structured:
+    format:
+      console: ${QUEUELAB_LOG_FORMAT:}
+  pattern:
+    correlation: "[%X{correlationId:-}] [%X{jobId:-}] "

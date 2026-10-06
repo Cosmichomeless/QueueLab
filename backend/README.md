@@ -332,6 +332,33 @@ instancias de la API detrás de un balanceador.
   expirar, cuota compartida entre dos instancias con conexiones independientes, concurrencia sin pasarse de la cuota,
   Redis inaccesible y validación de la configuración).
 
+## Logs estructurados e id de correlación
+
+Cada trabajo se puede seguir por los logs de API, publicación del outbox y worker con **un único id de correlación**.
+
+- **Origen**: la API acepta la cabecera `X-Correlation-Id` si trae un valor válido (`[A-Za-z0-9._-]`, 1–64 caracteres)
+  o genera un UUID; lo devuelve en la misma cabecera de la respuesta (también en errores). Un valor inválido
+  **no se copia al log ni a la respuesta**: se sustituye por uno nuevo (evita falsificar líneas de log).
+- **Recorrido**: filtro HTTP → columna `outbox_events.correlation_id` (migración V14) → cabecera AMQP
+  `x-correlation-id` → MDC del worker (también en el hilo del latido del lease). Los reintentos y el aviso a la DLQ
+  heredan el id. Los eventos sin petición (recuperación de leases) o anteriores a V14 reciben uno nuevo.
+- **Campos**: `correlationId` y `jobId` van en el MDC de cada línea relacionada con un trabajo.
+- **Formato**: `QUEUELAB_LOG_FORMAT=logstash` (o `ecs`) en API y worker emite una línea JSON por evento con el MDC
+  como campos; vacío (defecto), texto con `[correlationId] [jobId]` tras el nivel.
+- **Qué no se loguea**: contenido de ficheros ni credenciales; solo ids, tipo, intento y estado.
+
+Ejemplo (`QUEUELAB_LOG_FORMAT=logstash`), filtrando por `correlationId`:
+
+```
+API     Trabajo 39ae… aceptado (tipo csv-import)
+API     Evento JOB_QUEUED publicado en queuelab.jobs (trabajo 39ae…)
+worker  Trabajo 39ae… en ejecución (tipo csv-import, intento 1)
+worker  Trabajo 39ae… completado (intento 1)
+```
+
+Lo comprueba `LoggingEndToEndTest` (e2e con JSON): mismo `correlationId` y `jobId` en API, publicación y worker,
+cabecera inválida sustituida y ningún dato de celda en los logs.
+
 ## Pruebas del ciclo de vida
 
 `JobLifecycleApiTest` recorre el ciclo completo contra un PostgreSQL real (Testcontainers) cuyo

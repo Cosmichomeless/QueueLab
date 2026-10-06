@@ -70,4 +70,26 @@ class JobMessageCodecTest {
     void messageWithoutJobIdCannotBeBuilt() {
         assertThatThrownBy(() -> JobMessage.forJob(null)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void correlationIdTravelsAsAnAmqpHeaderWithoutChangingTheBody() {
+        UUID id = UUID.randomUUID();
+        String json = JobMessageCodec.toJson(JobMessage.forJob(id));
+
+        Message wire = JobMessageCodec.encodeJson(json, "corr-123");
+
+        assertThat(JobMessageCodec.correlationIdOf(wire)).isEqualTo("corr-123");
+        assertThat(wire.getBody()).isEqualTo(JobMessageCodec.encodeJson(json).getBody());
+        assertThat(JobMessageCodec.decode(wire)).isEqualTo(new JobMessage(1, id));
+    }
+
+    @Test
+    void aMessageWithoutOrWithAnInvalidCorrelationHeaderYieldsNull() {
+        Message plain = JobMessageCodec.encode(JobMessage.forJob(UUID.randomUUID()));
+        assertThat(JobMessageCodec.correlationIdOf(plain)).isNull();
+
+        Message hostile = JobMessageCodec.encodeJson("{}", "a b\nc");
+        assertThat(hostile.getMessageProperties().getHeaders()).containsKey("x-correlation-id");
+        assertThat(JobMessageCodec.correlationIdOf(hostile)).isNull();
+    }
 }

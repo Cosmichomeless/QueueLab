@@ -1,6 +1,7 @@
 package com.queuelab.core.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -8,6 +9,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import com.queuelab.core.job.Job;
+import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessageCodec;
 
 class OutboxEventTest {
@@ -41,5 +43,23 @@ class OutboxEventTest {
                 + "\",\"attempts\":" + failed.attempts() + ",\"cause\":\"El servicio externo no responde\"}");
         // Sigue siendo un JobMessage válido para quien solo mire el id.
         assertThat(JobMessageCodec.decode(JobMessageCodec.encodeJson(event.payload())).jobId()).isEqualTo(failed.id());
+    }
+
+    @Test
+    void newEventsInheritTheCorrelationIdOfTheCurrentContextOrGetTheirOwn() {
+        Instant now = Instant.parse("2026-03-01T08:00:00Z");
+        Job job = Job.queued(UUID.randomUUID(), "csv-import", now);
+
+        try (LogContext.Scope ignored = LogContext.with("request-42", null)) {
+            assertThat(OutboxEvent.jobQueued(job, now).correlationId()).isEqualTo("request-42");
+        }
+        String generated = OutboxEvent.jobQueued(job, now).correlationId();
+        assertThat(LogContext.isValid(generated)).isTrue();
+    }
+
+    @Test
+    void aCorrelationIdThatCouldForgeLogLinesIsRefused() {
+        assertThatThrownBy(() -> new OutboxEvent(UUID.randomUUID(), UUID.randomUUID(), "JOB_QUEUED", "{}",
+                Instant.now(), null, 0, "a\nb")).isInstanceOf(IllegalArgumentException.class);
     }
 }

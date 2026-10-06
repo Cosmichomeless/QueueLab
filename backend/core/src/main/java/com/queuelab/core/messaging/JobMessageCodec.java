@@ -4,8 +4,11 @@ import java.util.UUID;
 
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
+import org.springframework.amqp.core.MessageBuilderSupport;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
+
+import com.queuelab.core.logging.LogContext;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -51,11 +54,29 @@ public final class JobMessageCodec {
 
     /** Como {@link #encode(JobMessage)}, a partir de un cuerpo ya serializado (el del outbox). */
     public static Message encodeJson(String body) {
-        return MessageBuilder.withBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        return encodeJson(body, null);
+    }
+
+    /**
+     * Como {@link #encodeJson(String)}, con el id de correlación como cabecera
+     * ({@link LogContext#AMQP_HEADER}) para que el worker lo ponga en sus logs. Es solo metadato: el contrato
+     * del cuerpo no cambia y un mensaje sin cabecera sigue siendo válido.
+     */
+    public static Message encodeJson(String body, String correlationId) {
+        MessageBuilderSupport<Message> builder = MessageBuilder.withBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .setContentEncoding("UTF-8")
-                .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
-                .build();
+                .setDeliveryMode(MessageDeliveryMode.PERSISTENT);
+        if (correlationId != null) {
+            builder.setHeader(LogContext.AMQP_HEADER, correlationId);
+        }
+        return builder.build();
+    }
+
+    /** El id de correlación de la cabecera del mensaje, o {@code null} si falta o no es un id válido. */
+    public static String correlationIdOf(Message message) {
+        Object value = message.getMessageProperties().getHeader(LogContext.AMQP_HEADER);
+        return value instanceof String id && LogContext.isValid(id) ? id : null;
     }
 
     /**

@@ -3,6 +3,8 @@ package com.queuelab.api.job;
 import java.util.List;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -22,10 +24,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.queuelab.core.job.Job;
 import com.queuelab.core.job.JobStatus;
+import com.queuelab.core.logging.LogContext;
 
 @RestController
 @RequestMapping("/api/v1/jobs")
 public class JobController {
+
+    private static final Logger log = LoggerFactory.getLogger(JobController.class);
 
     private final JobService service;
     private final CsvUploadService csvUploads;
@@ -51,6 +56,7 @@ public class JobController {
         var location = ServletUriComponentsBuilder.fromCurrentRequest().replaceQuery(null)
                 .path("/{id}").build(job.id());
         if (submission.created()) {
+            logAccepted("aceptado", job);
             return ResponseEntity.created(location).body(JobResponse.from(job));
         }
         return ResponseEntity.ok().location(location).header("Idempotent-Replayed", "true")
@@ -66,6 +72,7 @@ public class JobController {
     @PostMapping(path = "/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<JobResponse> uploadCsv(@RequestPart(name = "file", required = false) MultipartFile file) {
         Job job = csvUploads.upload(file);
+        logAccepted("aceptado", job);
         var location = ServletUriComponentsBuilder.fromCurrentRequest().replacePath("/api/v1/jobs/{id}").build(job.id());
         return ResponseEntity.created(location).body(JobResponse.from(job));
     }
@@ -89,8 +96,16 @@ public class JobController {
     @PostMapping("/{id}/retry")
     ResponseEntity<JobResponse> retry(@PathVariable UUID id) {
         Job job = service.retry(id);
+        logAccepted("reencolado por reintento manual", job);
         var location = ServletUriComponentsBuilder.fromCurrentRequest().replacePath("/api/v1/jobs/{id}").build(id);
         return ResponseEntity.accepted().location(location).body(JobResponse.from(job));
+    }
+
+    /** Una línea por trabajo que entra en la cola, con su id y el de correlación en el MDC. Nunca el contenido. */
+    private static void logAccepted(String what, Job job) {
+        try (LogContext.Scope ignored = LogContext.with(null, job.id())) {
+            log.info("Trabajo {} {} (tipo {})", job.id(), what, job.type());
+        }
     }
 
     /** Historial de reintentos manuales del trabajo, del más antiguo al más reciente. */

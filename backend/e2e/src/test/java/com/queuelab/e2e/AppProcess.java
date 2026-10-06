@@ -58,6 +58,11 @@ final class AppProcess implements AutoCloseable {
         return process.isAlive();
     }
 
+    /** Todas las líneas que el proceso ha escrito hasta ahora (stdout y stderr). */
+    java.util.List<String> lines() throws IOException {
+        return Files.readAllLines(log);
+    }
+
     /** Últimas líneas del log, para diagnosticar un fallo. */
     String tail(int lines) {
         try {

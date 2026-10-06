@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.queuelab.core.job.Job;
 import com.queuelab.core.job.JobRepository;
+import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessage;
 import com.queuelab.core.outbox.OutboxEvent;
 import com.queuelab.core.outbox.OutboxRepository;
@@ -72,9 +73,11 @@ public class JobProcessor {
             return;
         }
 
+        log.info("Trabajo {} en ejecución (tipo {}, intento {})", running.id(), running.type(), running.attempts());
         ScheduledFuture<?> heartbeat = startHeartbeat(running);
         try {
             finish(running, running.completed(executor.execute(running), now()));
+            log.info("Trabajo {} completado (intento {})", running.id(), running.attempts());
         } catch (TransientJobException e) {
             log.warn("El trabajo {} falló de forma transitoria (intento {}): {}", running.id(), running.attempts(),
                     e.getMessage());
@@ -100,16 +103,21 @@ public class JobProcessor {
      *         worker, terminó, o lo recuperó otra instancia)
      */
     public boolean recover(Job abandoned) {
-        log.warn("El trabajo {} perdió su lease en el intento {}: se da por abandonado", abandoned.id(),
-                abandoned.attempts());
-        return retryOrFail(abandoned, ABANDONED_ERROR, true);
+        // No hay petición ni mensaje de por medio: la recuperación abre su propio id de correlación.
+        try (LogContext.Scope ignored = LogContext.with(LogContext.newCorrelationId(), abandoned.id())) {
+            log.warn("El trabajo {} perdió su lease en el intento {}: se da por abandonado", abandoned.id(),
+                    abandoned.attempts());
+            return retryOrFail(abandoned, ABANDONED_ERROR, true);
+        }
     }
 
     /** Renueva el lease cada tercio de su duración mientras dure la ejecución. */
     private ScheduledFuture<?> startHeartbeat(Job running) {
         long period = leasePolicy.renewInterval().toMillis();
+        // El MDC es del hilo: el latido corre en otro y debe llevar el mismo contexto que el trabajo.
+        String correlationId = LogContext.correlationId();
         return leaseRenewer.scheduleAtFixedRate(() -> {
-            try {
+            try (LogContext.Scope ignored = LogContext.with(correlationId, running.id())) {
                 Instant now = now();
                 if (!jobs.renewLease(running.id(), running.attempts(), now, now.plus(leasePolicy.duration()))) {
                     log.warn("No se pudo renovar el lease de {}: el intento {} ya no está en curso",

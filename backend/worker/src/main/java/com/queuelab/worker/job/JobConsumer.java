@@ -7,6 +7,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessage;
 import com.queuelab.core.messaging.JobMessageCodec;
 import com.queuelab.core.messaging.JobMessagingTopology;
@@ -29,18 +30,26 @@ class JobConsumer {
 
     @RabbitListener(queues = JobMessagingTopology.QUEUE)
     void onMessage(Message message) {
-        JobMessage job;
-        try {
-            job = JobMessageCodec.decode(message);
-        } catch (MalformedJobMessageException e) {
-            log.warn("Mensaje malformado enviado a la cola dead-letter: {}", e.getMessage());
-            throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
+        // El id de correlación viaja en una cabecera del mensaje; sin ella (mensajes antiguos o de otro
+        // productor) el worker genera uno para que sus propios logs sigan siendo correlables.
+        String correlationId = JobMessageCodec.correlationIdOf(message);
+        if (correlationId == null) {
+            correlationId = LogContext.newCorrelationId();
         }
-        try {
-            processor.process(job);
-        } catch (UnknownJobException e) {
-            log.warn("Mensaje enviado a la cola dead-letter: {}", e.getMessage());
-            throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
+        try (LogContext.Scope ignored = LogContext.with(correlationId, null)) {
+            JobMessage job;
+            try {
+                job = JobMessageCodec.decode(message);
+            } catch (MalformedJobMessageException e) {
+                log.warn("Mensaje malformado enviado a la cola dead-letter: {}", e.getMessage());
+                throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
+            }
+            try (LogContext.Scope jobScope = LogContext.with(null, job.jobId())) {
+                processor.process(job);
+            } catch (UnknownJobException e) {
+                log.warn("Mensaje enviado a la cola dead-letter: {}", e.getMessage());
+                throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
+            }
         }
     }
 }
