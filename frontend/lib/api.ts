@@ -1,6 +1,6 @@
 /** Cliente de la API de QueueLab (ver backend/README.md, «API de trabajos»). */
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
+import { apiUrl } from "./config";
 
 export const JOB_STATUSES = ["QUEUED", "RUNNING", "RETRYING", "COMPLETED", "FAILED"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
@@ -45,7 +45,7 @@ export class ApiError extends Error {
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, { cache: "no-store", ...init });
+    response = await fetch(`${apiUrl()}${path}`, { cache: "no-store", ...init });
   } catch {
     throw new ApiError("No se pudo conectar con la API. Comprueba que está en marcha.", null);
   }
@@ -85,7 +85,7 @@ export function getJob(id: string) {
 
 /** URL absoluta de descarga del resultado (la API devuelve la ruta relativa en `downloadUrl`). */
 export function downloadHref(file: ResultFile): string {
-  return `${API_URL}${file.downloadUrl}`;
+  return `${apiUrl()}${file.downloadUrl}`;
 }
 
 /** Devuelve a la cola un trabajo `FAILED` (mismo id). La API responde 202 con el trabajo en `QUEUED`, o 409 si no es elegible. */

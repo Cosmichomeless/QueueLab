@@ -6,16 +6,27 @@ PostgreSQL: solo con la API REST (ver [`backend/README.md`](../backend/README.md
 ## Arranque
 
 ```bash
-cp .env.example .env.local   # NEXT_PUBLIC_API_URL, por defecto http://localhost:8080
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL / QUEUELAB_API_URL, por defecto http://localhost:8080
 npm ci
 npm run dev                  # http://localhost:3000
 ```
 
 Scripts: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`.
 
-`NEXT_PUBLIC_API_URL` se incluye en el bundle del navegador **al compilar** (`next build`): cambiarla exige
-recompilar. Las llamadas salen del navegador, por lo que la API debe permitir el origen del dashboard
-(`QUEUELAB_CORS_ALLOWED_ORIGINS`, por defecto `http://localhost:3000`).
+La URL de la API se lee **en tiempo de ejecución** de `QUEUELAB_API_URL` (en desarrollo local también vale
+`NEXT_PUBLIC_API_URL` en `.env.local`): el servidor la entrega al navegador en cada página, así que no hace falta
+recompilar para cambiarla (ver `lib/config.ts`). Las llamadas salen del navegador, por lo que la API debe permitir
+el origen del dashboard (`QUEUELAB_CORS_ALLOWED_ORIGINS`, por defecto `http://localhost:3000`).
+
+## Contenedor
+
+```bash
+docker build -t queuelab-dashboard frontend
+docker run --rm -p 3000:3000 -e QUEUELAB_API_URL=http://localhost:8080 queuelab-dashboard
+```
+
+Imagen multietapa con la salida `standalone` de Next, sin root y con `HEALTHCHECK`. Detalles y verificación en
+[`docs/containers-frontend.md`](../docs/containers-frontend.md).
 
 ## Estructura
 
@@ -30,6 +41,7 @@ recompilar. Las llamadas salen del navegador, por lo que la API debe permitir el
 | `components/CsvUploadForm.tsx` | Formulario (componente de cliente): validación, envío, errores y navegación al detalle. |
 | `components/JobList.tsx` | Lista (componente de cliente): carga, vacío, error, filtro y paginación. |
 | `components/StatusBadge.tsx` | Etiqueta de estado con color y texto (no solo color). |
+| `lib/config.ts` | URL de la API en tiempo de ejecución (`QUEUELAB_API_URL`) y su entrega al navegador |
 | `lib/api.ts` | Tipos de la API, `ApiError` (mensaje del `problem+json` o de red), `listJobs`, `getJob`, `retryJob`, `uploadCsv` y `downloadHref`. |
 | `lib/jobs.ts` | `isActive(status)`, `canRetry(job)` y `POLL_INTERVAL_MS` (2 s), la cadencia del seguimiento. |
 | `lib/csv.ts` | Validación de un CSV en el cliente (`validateCsvFile`) y su límite de tamaño. |
@@ -103,7 +115,7 @@ Errores:
 | Trabajo inexistente (404) o identificador no válido (400) | «No existe ningún trabajo con ese identificador.», sin reintento. |
 | Falla una actualización con datos ya mostrados | Se conserva lo último conocido, aviso «No se pudo actualizar el estado (…)» y se sigue reintentando; el aviso desaparece al recuperarse. |
 
-La descarga apunta directamente a la API (`API_URL` + `downloadUrl`); es de otro origen, así que el navegador se
+La descarga apunta directamente a la API (URL de la API + `downloadUrl`); es de otro origen, así que el navegador se
 apoya en el `Content-Disposition: attachment` de la API.
 
 ### Reintento de un trabajo fallido
@@ -132,6 +144,7 @@ componentes. `next/navigation` se mockea para comprobar la navegación tras envi
 |---|---|
 | `lib/csv.test.ts` | Validación del CSV: sin fichero, tipo/extensión, vacío, tamaño máximo (y el límite exacto). |
 | `lib/jobs.test.ts` | Qué estados siguen activos (seguimiento) y cuáles permiten reintento. |
+| `lib/config.test.ts` | Resolución de la URL de la API (`QUEUELAB_API_URL` → `NEXT_PUBLIC_API_URL` → defecto, valor inyectado en el navegador) y escape del script. |
 | `lib/api.test.ts` | Mensaje de error (`detail` → `title` → «Error N», fallo de red), `multipart` sin `Content-Type`, query de `listJobs`, `retryJob`. |
 | `components/CsvUploadForm.test.tsx` | **Validación** (ninguna llamada a la API, botón deshabilitado), **subida fallida** (413/400 con detalle, red caída, fichero conservado, reenvío) y **éxito** (navega a `/jobs/{id}`, «Enviando…», sin doble envío). |
 | `components/JobDetail.test.tsx` | **Progreso** por estado (`QUEUED`/`RUNNING`/`RETRYING`), seguimiento hasta el final y parada del polling, **resultado** con descarga, **error** (`FAILED`, último fallo en `RETRYING`), 404/400, fallo de refresco que se recupera, y el flujo de **reintento** (202, 409, red, doble clic). |

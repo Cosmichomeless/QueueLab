@@ -1,0 +1,19 @@
+# Fuera del contexto de construcción: dependencias y artefactos locales, secretos y ficheros de desarrollo.
+node_modules
+.next
+out
+build
+coverage
+*.tsbuildinfo
+next-env.d.ts
+
+# Variables de entorno locales (pueden contener datos propios); la plantilla .env.example sí entra.
+.env*
+!.env.example
+
+.git
+.gitignore
+.DS_Store
+npm-debug.log*
+Dockerfile
+.dockerignore
