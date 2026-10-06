@@ -329,6 +329,30 @@ trabajo) y `V9` `outbox_events.available_at` (publicación diferida).
 El worker solo **escribe** en `jobs` y `outbox_events`, con el esquema que migra la API (no incluye Flyway; los tests lo
 crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar`.
 
+### Concurrencia del worker
+
+Cada proceso worker ejecuta como máximo `queuelab.worker.concurrency` trabajos **a la vez**. Es un número fijo de
+consumidores (`concurrentConsumers == maxConcurrentConsumers`): el contenedor de Spring AMQP no escala por su cuenta,
+así que el límite no se supera aunque la cola esté llena. La capacidad total del sistema es ese valor por el número de
+workers en marcha.
+
+| Propiedad (variable) | Por defecto | Significado |
+|---|---|---|
+| `queuelab.worker.concurrency` (`QUEUELAB_WORKER_CONCURRENCY`) | `2` | Consumidores simultáneos por proceso, entre 1 y 64. Fuera de rango, el worker no arranca y lo explica. |
+| `queuelab.worker.prefetch` (`QUEUELAB_WORKER_PREFETCH`) | `1` | Mensajes sin confirmar que RabbitMQ entrega a cada consumidor. Con `1`, un worker ocupado no acapara mensajes que otro libre podría procesar. |
+
+Por qué esos valores: el trabajo típico (CSV) es de CPU y E/S moderadas y cada uno mantiene un lease y conexiones a
+PostgreSQL, así que un valor pequeño es seguro en un equipo modesto; Spring AMQP, sin configurar, usaría 1 consumidor con
+`prefetch` 250, que serializa la ejecución y deja 250 mensajes retenidos por un solo proceso. Para subir el límite:
+
+- Cada trabajo en curso puede usar una conexión del pool de PostgreSQL (Hikari, 10 por defecto): no pongas más
+  consumidores que conexiones libres.
+- El latido del lease usa un único hilo y consultas muy cortas: no es un cuello de botella con decenas de consumidores.
+- Súbelo gradualmente y observa la latencia en cola y el uso de CPU/memoria antes de pasar al siguiente escalón.
+
+`ConcurrencyTest` lo comprueba contra RabbitMQ y PostgreSQL reales: con `concurrency=3` y 12 trabajos de 300 ms
+publicados a la vez, el máximo simultáneo observado es exactamente 3 y los 12 terminan `COMPLETED`.
+
 ### Procesamiento de CSV (`csv-import`)
 
 `CsvImportJobHandler` procesa el fichero que subió `POST /api/v1/jobs/csv` (contrato completo en
