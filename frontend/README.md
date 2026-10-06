@@ -11,7 +11,7 @@ npm ci
 npm run dev                  # http://localhost:3000
 ```
 
-Scripts: `npm run lint`, `npm run typecheck`, `npm run build`.
+Scripts: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`.
 
 `NEXT_PUBLIC_API_URL` se incluye en el bundle del navegador **al compilar** (`next build`): cambiarla exige
 recompilar. Las llamadas salen del navegador, por lo que la API debe permitir el origen del dashboard
@@ -34,6 +34,9 @@ recompilar. Las llamadas salen del navegador, por lo que la API debe permitir el
 | `lib/jobs.ts` | `isActive(status)`, `canRetry(job)` y `POLL_INTERVAL_MS` (2 s), la cadencia del seguimiento. |
 | `lib/csv.ts` | Validación de un CSV en el cliente (`validateCsvFile`) y su límite de tamaño. |
 | `lib/format.ts` | Etiquetas de estado en español, formato de fechas y de tamaños. |
+| `*.test.ts(x)` | Tests de Vitest, junto a lo que prueban. |
+| `test/fixtures.ts` | Trabajos y respuestas HTTP de ejemplo para los tests. |
+| `vitest.config.mts`, `vitest.setup.ts` | Configuración de Vitest (jsdom, alias `@/`, jest-dom y limpieza entre tests). |
 
 ## Lista de trabajos (`/jobs`)
 
@@ -114,3 +117,24 @@ El botón «Reintentar trabajo» solo aparece con el trabajo en `FAILED` (`canRe
 | 202 | Se muestra el trabajo ya en `En cola` con 0 intentos, el aviso «Reintento solicitado…» y desaparece el botón. Se retoma el seguimiento automático, así que el nuevo ciclo (`QUEUED → RUNNING → …`) se ve sin recargar. |
 | 409 (otro lo reintentó antes, o ya no es `FAILED`) | Alerta con el motivo de la API y se vuelve a pedir el trabajo para mostrar su estado real. |
 | Error de red u otro | Alerta «No se pudo reintentar: …»; el botón sigue activo para volver a intentarlo. |
+
+## Tests
+
+```bash
+npm run test         # una pasada (vitest run); `npm run test:watch` para desarrollo
+```
+
+Vitest + jsdom + Testing Library. No hace falta la API ni un navegador: los tests sustituyen `fetch` por un mock
+(`vi.stubGlobal`), de modo que también se ejercita `lib/api.ts` (URL, `FormData`, mensajes de error) y no solo los
+componentes. `next/navigation` se mockea para comprobar la navegación tras enviar.
+
+| Fichero | Qué cubre |
+|---|---|
+| `lib/csv.test.ts` | Validación del CSV: sin fichero, tipo/extensión, vacío, tamaño máximo (y el límite exacto). |
+| `lib/jobs.test.ts` | Qué estados siguen activos (seguimiento) y cuáles permiten reintento. |
+| `lib/api.test.ts` | Mensaje de error (`detail` → `title` → «Error N», fallo de red), `multipart` sin `Content-Type`, query de `listJobs`, `retryJob`. |
+| `components/CsvUploadForm.test.tsx` | **Validación** (ninguna llamada a la API, botón deshabilitado), **subida fallida** (413/400 con detalle, red caída, fichero conservado, reenvío) y **éxito** (navega a `/jobs/{id}`, «Enviando…», sin doble envío). |
+| `components/JobDetail.test.tsx` | **Progreso** por estado (`QUEUED`/`RUNNING`/`RETRYING`), seguimiento hasta el final y parada del polling, **resultado** con descarga, **error** (`FAILED`, último fallo en `RETRYING`), 404/400, fallo de refresco que se recupera, y el flujo de **reintento** (202, 409, red, doble clic). |
+
+El polling se prueba con temporizadores falsos (`vi.useFakeTimers` + `advanceTimersByTimeAsync(2000)`). Allí se usa
+`fireEvent` en lugar de `user-event`, que espera con `setTimeout` y se bloquea con los timers falsos de Vitest.
