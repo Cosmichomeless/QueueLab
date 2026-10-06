@@ -4,6 +4,10 @@ node_modules
 out
 build
 coverage
+e2e
+test-results
+playwright-report
+playwright.config.ts
 *.tsbuildinfo
 next-env.d.ts
 
