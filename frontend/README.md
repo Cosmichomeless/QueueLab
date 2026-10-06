@@ -25,12 +25,15 @@ recompilar. Las llamadas salen del navegador, por lo que la API debe permitir el
 | `app/page.tsx` | `/` redirige a `/jobs`. |
 | `app/jobs/page.tsx` | Lista de trabajos. |
 | `app/jobs/new/page.tsx` | Formulario de envío de un CSV. |
+| `app/jobs/[id]/page.tsx` | Detalle de un trabajo (recibe `params` como `Promise` y delega en `JobDetail`). |
+| `components/JobDetail.tsx` | Detalle (componente de cliente): estado, datos, resultado/fallo y actualización automática. |
 | `components/CsvUploadForm.tsx` | Formulario (componente de cliente): validación, envío, errores y navegación al detalle. |
 | `components/JobList.tsx` | Lista (componente de cliente): carga, vacío, error, filtro y paginación. |
 | `components/StatusBadge.tsx` | Etiqueta de estado con color y texto (no solo color). |
-| `lib/api.ts` | Tipos de la API, `ApiError` (mensaje del `problem+json` o de red), `listJobs` y `uploadCsv`. |
+| `lib/api.ts` | Tipos de la API, `ApiError` (mensaje del `problem+json` o de red), `listJobs`, `getJob`, `uploadCsv` y `downloadHref`. |
+| `lib/jobs.ts` | `isActive(status)` y `POLL_INTERVAL_MS` (2 s), la cadencia del seguimiento. |
 | `lib/csv.ts` | Validación de un CSV en el cliente (`validateCsvFile`) y su límite de tamaño. |
-| `lib/format.ts` | Etiquetas de estado en español y formato de fechas. |
+| `lib/format.ts` | Etiquetas de estado en español, formato de fechas y de tamaños. |
 
 ## Lista de trabajos (`/jobs`)
 
@@ -70,3 +73,32 @@ y el error en un `role="alert"` enlazado al campo (`aria-describedby`).
 para ahorrar la subida; la API sigue siendo quien decide, y si su límite es menor el 413 se muestra igualmente.
 Para que el navegador pueda leer esos errores, la API los devuelve también con las cabeceras CORS (el CORS es un
 filtro, no solo configuración de MVC, por lo que cubre respuestas como el 413 del multipart).
+
+## Detalle de un trabajo (`/jobs/{id}`)
+
+Es a donde llevan los enlaces de la lista y la redirección tras enviar un CSV. Muestra el estado (etiqueta con color
+**y** texto), ID, tipo, intentos y las fechas de creación, inicio y fin, más un bloque según el estado:
+
+| Estado | Qué se ve |
+|---|---|
+| `QUEUED` | «Esperando en la cola a que un worker lo recoja. Se actualiza solo.» |
+| `RUNNING` | «Un worker lo está procesando. Se actualiza solo.» |
+| `RETRYING` | «El intento anterior falló; se volverá a ejecutar.» y, si la API lo da, «Último fallo» con el motivo. |
+| `COMPLETED` | Bloque «Resultado» con el texto y, si hay `resultFile`, el enlace de descarga (nombre, tipo y tamaño). |
+| `FAILED` | Bloque «Fallo» con el `error` del trabajo. |
+
+**Seguimiento sin recargar**: mientras el estado sea `QUEUED`, `RUNNING` o `RETRYING` se vuelve a pedir el trabajo
+cada `POLL_INTERVAL_MS` (2 s) con un `setTimeout` encadenado (no se solapan peticiones). Al llegar a `COMPLETED` o
+`FAILED` se para y no se hacen más peticiones. Al salir de la página o cambiar de `id` se cancela el temporizador y
+se descarta la respuesta en vuelo. El cambio de estado se anuncia en una región `role="status"` (`aria-live`).
+
+Errores:
+
+| Situación | Comportamiento |
+|---|---|
+| Primera carga falla (API caída, 5xx) | Alerta con el motivo y botón «Reintentar». |
+| Trabajo inexistente (404) o identificador no válido (400) | «No existe ningún trabajo con ese identificador.», sin reintento. |
+| Falla una actualización con datos ya mostrados | Se conserva lo último conocido, aviso «No se pudo actualizar el estado (…)» y se sigue reintentando; el aviso desaparece al recuperarse. |
+
+La descarga apunta directamente a la API (`API_URL` + `downloadUrl`); es de otro origen, así que el navegador se
+apoya en el `Content-Disposition: attachment` de la API.

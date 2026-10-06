@@ -78,3 +78,12 @@ export function uploadCsv(file: File) {
   // Sin Content-Type: el navegador añade el multipart con su boundary.
   return request<Job>("/api/v1/jobs/csv", { method: "POST", body });
 }
+
+export function getJob(id: string) {
+  return request<Job>(`/api/v1/jobs/${encodeURIComponent(id)}`);
+}
+
+/** URL absoluta de descarga del resultado (la API devuelve la ruta relativa en `downloadUrl`). */
+export function downloadHref(file: ResultFile): string {
+  return `${API_URL}${file.downloadUrl}`;
+}

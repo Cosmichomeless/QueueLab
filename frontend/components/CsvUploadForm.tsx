@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { ApiError, uploadCsv } from "@/lib/api";
-import { formatBytes, MAX_CSV_BYTES, validateCsvFile } from "@/lib/csv";
+import { MAX_CSV_BYTES, validateCsvFile } from "@/lib/csv";
+import { formatBytes } from "@/lib/format";
 import styles from "./CsvUploadForm.module.css";
 
 export function CsvUploadForm() {
