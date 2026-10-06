@@ -77,6 +77,9 @@ export function JobList() {
           <button type="button" onClick={reload} disabled={state.phase === "loading"}>
             Actualizar
           </button>
+          <Link href="/jobs/new" className={styles.primary}>
+            Nuevo CSV
+          </Link>
         </div>
       </div>
 

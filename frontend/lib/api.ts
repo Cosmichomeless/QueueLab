@@ -70,3 +70,11 @@ export function listJobs(options: { cursor?: string | null; status?: JobStatus |
   if (options.status) params.set("status", options.status);
   return request<JobPage>(`/api/v1/jobs?${params}`);
 }
+
+/** Sube un CSV (`multipart/form-data`, parte `file`) y devuelve el trabajo creado, en `QUEUED`. */
+export function uploadCsv(file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  // Sin Content-Type: el navegador añade el multipart con su boundary.
+  return request<Job>("/api/v1/jobs/csv", { method: "POST", body });
+}

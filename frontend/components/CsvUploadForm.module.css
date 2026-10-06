@@ -1,0 +1,7 @@
+.form { display: flex; flex-direction: column; gap: 12px; max-width: 520px; margin-top: 16px; }
+.help { color: var(--muted); font-size: 0.9rem; }
+.error { color: #9b1c1c; }
+
+@media (prefers-color-scheme: dark) {
+  .error { color: #f5a8a8; }
+}

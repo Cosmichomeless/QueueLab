@@ -59,6 +59,8 @@ class CsvEndToEndTest {
     static String apiUrl;
     static Path storage;
 
+    private static final String DASHBOARD_ORIGIN = "http://localhost:3000";
+
     @BeforeAll
     static void start() throws Exception {
         POSTGRES.start();
@@ -78,7 +80,8 @@ class CsvEndToEndTest {
 
         api = AppProcess.start("api", merge(env, Map.of(
                 "SERVER_PORT", String.valueOf(apiPort),
-                "QUEUELAB_CSV_MAX_FILE_SIZE", MAX_FILE_BYTES + "B")));
+                "QUEUELAB_CSV_MAX_FILE_SIZE", MAX_FILE_BYTES + "B",
+                "QUEUELAB_CORS_ALLOWED_ORIGINS", DASHBOARD_ORIGIN)));
         await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofMillis(500)).ignoreExceptions().untilAsserted(() -> {
             assertThat(api.isAlive()).as("la API sigue viva:%n%s", api.tail(30)).isTrue();
             assertThat(get("/actuator/health").statusCode()).isEqualTo(200);
@@ -184,6 +187,8 @@ class CsvEndToEndTest {
         HttpResponse<String> response = upload("grande.csv", "text/csv", content);
 
         assertThat(response.statusCode()).isEqualTo(413);
+        // Sin esta cabecera el navegador del dashboard vería un fallo de red en vez del motivo.
+        assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).hasValue(DASHBOARD_ORIGIN);
         assertThat(JSON.readTree(response.body()).get("detail").asString()).contains("tamaño máximo");
         assertThat(count("SELECT count(*) FROM jobs")).isEqualTo(before);
     }
@@ -234,6 +239,7 @@ class CsvEndToEndTest {
         byte[] tail = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
         return HTTP.send(HttpRequest.newBuilder(URI.create(apiUrl + "/api/v1/jobs/csv"))
                         .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                        .header("Origin", DASHBOARD_ORIGIN)
                         .POST(HttpRequest.BodyPublishers.ofByteArrays(java.util.List.of(head, content, tail))).build(),
                 HttpResponse.BodyHandlers.ofString());
     }

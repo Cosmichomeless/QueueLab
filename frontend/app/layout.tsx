@@ -29,6 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </Link>
           <nav aria-label="Principal">
             <Link href="/jobs">Trabajos</Link>
+            <Link href="/jobs/new">Nuevo CSV</Link>
           </nav>
         </header>
         <main className={styles.main}>{children}</main>

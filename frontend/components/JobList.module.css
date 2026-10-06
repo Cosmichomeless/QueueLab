@@ -14,3 +14,5 @@
 @media (prefers-color-scheme: dark) {
   .error { color: #f5a8a8; border-color: #7a2c2c; }
 }
+
+.primary { padding: 6px 12px; border: 1px solid var(--foreground); border-radius: 6px; font-weight: 600; }
