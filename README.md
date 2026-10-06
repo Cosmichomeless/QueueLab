@@ -128,3 +128,4 @@ docker compose down -v                # borra también los volúmenes
 - [`docs/e2e-dashboard.md`](docs/e2e-dashboard.md): pruebas e2e del dashboard con Playwright.
 - [`docs/containers-backend.md`](docs/containers-backend.md) y [`docs/containers-frontend.md`](docs/containers-frontend.md): imágenes de API, worker y dashboard.
 - [`docs/ci-backend.md`](docs/ci-backend.md): CI del backend y el worker en GitHub Actions.
+- [`docs/ci-frontend.md`](docs/ci-frontend.md): CI del dashboard (lint, tipos, tests y build) en GitHub Actions.

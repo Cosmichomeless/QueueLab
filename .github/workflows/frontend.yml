@@ -1,0 +1,71 @@
+# CI del dashboard (frontend/): lint, comprobación de tipos, tests y build en cada pull request que lo toca.
+# Detalles y decisiones en docs/ci-frontend.md.
+name: Frontend
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+  # Permite lanzarlo a mano desde la pestaña Actions (por ejemplo, para repetir una ejecución sospechosa).
+  workflow_dispatch:
+
+# Solo lectura: el job no necesita escribir en el repositorio ni en issues/PR.
+permissions:
+  contents: read
+
+# Un push nuevo a la misma rama cancela la ejecución anterior, que ya no sirve.
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Este es el nombre del check que se marca como obligatorio en la protección de la rama (ver docs/ci-frontend.md).
+  lint-typecheck-test-build:
+    name: Frontend lint, typecheck, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Node 22, la misma versión que frontend/Dockerfile.
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          # Cachea ~/.npm con clave basada en el package-lock.json: las dependencias no se descargan en cada PR.
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `ci` instala exactamente lo que dice el lockfile y falla si package.json y el lockfile no coinciden.
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and component tests
+        run: npm test
+
+      # Cache de compilación de Next.js: acelera el build; la clave cambia con las dependencias y el código fuente.
+      - name: Cache Next.js build
+        uses: actions/cache@v6
+        with:
+          path: frontend/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/**/*.ts', 'frontend/**/*.tsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-
+
+      - name: Build
+        run: npm run build
