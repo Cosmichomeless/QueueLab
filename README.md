@@ -1,148 +1,132 @@
+<div align="center">
+
 # QueueLab
 
-Plataforma de procesamiento de trabajos asíncronos: un cliente envía un trabajo pesado
-por una API REST, el trabajo se encola en RabbitMQ y un worker independiente lo procesa
-y guarda el resultado en PostgreSQL. Un dashboard en Next.js permite seguir su estado.
+**Cola de trabajos asíncronos con API REST, worker independiente y dashboard, para estudiar cómo se construye un sistema distribuido que no pierde trabajos.**
 
-Es un proyecto de estudio centrado en backend, arquitectura y sistemas distribuidos
-(colas, idempotencia, reintentos, dead-letter queues, concurrencia, observabilidad…).
-Las notas de partida están en [`docs/notas-originales.md`](docs/notas-originales.md).
+[![Backend CI](https://github.com/Cosmichomeless/QueueLab/actions/workflows/backend.yml/badge.svg)](https://github.com/Cosmichomeless/QueueLab/actions/workflows/backend.yml)
+[![Frontend CI](https://github.com/Cosmichomeless/QueueLab/actions/workflows/frontend.yml/badge.svg)](https://github.com/Cosmichomeless/QueueLab/actions/workflows/frontend.yml)
+![Estado](https://img.shields.io/badge/estado-pre--1.0-orange)
+![Stack](https://img.shields.io/badge/Java_25-Spring_Boot_4.1-6DB33F)
+![Stack](https://img.shields.io/badge/Next.js_16-React_19-black)
+![Licencia](https://img.shields.io/badge/licencia-MIT-blue)
 
-> **Estado:** en construcción hacia la v1.0.0. Hoy existen los tres procesos (API, worker,
-> dashboard) como esqueletos, los servicios locales y las migraciones de base de datos.
-> El flujo de trabajos descrito abajo es el diseño objetivo; el backlog está en los
-> [issues](https://github.com/Cosmichomeless/QueueLab/issues).
+[Probarlo](#probarlo-en-un-comando) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Limitaciones](#limitaciones-conocidas) · [Documentación](#documentación)
+
+</div>
+
+QueueLab recibe un CSV por una API REST, lo encola en RabbitMQ y lo procesa en un worker aparte que calcula estadísticas por columna. Es un proyecto de estudio: demuestra outbox transaccional, reintentos, dead-letter queue, idempotencia y observabilidad, no un producto listo para producción.
+
+## Qué incluye
+
+- **Outbox transaccional:** el trabajo y su evento `JOB_QUEUED` se guardan en la misma transacción de PostgreSQL; un dispatcher los publica con publisher confirms y `FOR UPDATE SKIP LOCKED`.
+- **Entrega al menos una vez, sin ejecutar dos veces:** el worker reclama el trabajo con un `UPDATE ... WHERE status = 'QUEUED'`; 3 intentos con espera exponencial (5 s ×2, máximo 5 min), DLQ y recuperación por lease de 2 min. `Idempotency-Key` en la API.
+- **API que se protege:** responde 503 con 1.000 trabajos pendientes (contrapresión) y 429 por encima de 60 envíos por minuto y por IP (cuota en Redis).
+- **Un trabajo real:** `csv-import` lee CSV de hasta 10 MiB en streaming y escribe un `<jobId>.stats.json` con estadísticas por columna.
+- **Observabilidad:** métricas Prometheus, dashboard de Grafana provisionado, trazas OpenTelemetry que unen petición HTTP, outbox y worker, y logs con id de correlación.
+- **Medido, no supuesto:** con 8 hilos el worker pasa de 8,3 a 40,2 trabajos/s (4,84×) sobre un CSV de 8,6 MiB y 150.000 filas.
+
+## Probarlo en un comando
+
+> **No hay demo pública:** no existe ningún despliegue. Solo corre en local con Docker.
+
+```bash
+docker compose up -d --wait   # PostgreSQL, RabbitMQ, Redis, API, worker y dashboard; la primera vez construye las imágenes (unos minutos)
+```
+
+Abre `http://127.0.0.1:3000`, pulsa **Nuevo CSV** y sube un fichero. Para parar: `docker compose down` (conserva los datos). Con Prometheus y Grafana, API y puertos: [`docs/compose-stack.md`](docs/compose-stack.md).
+
+## Capturas
+
+| **Lista de trabajos** | **Nuevo trabajo CSV** |
+| --- | --- |
+| ![Lista de trabajos con cuatro completados y uno fallido, con su tipo y fecha de creación](docs/screenshots/01-trabajos.png) | ![Formulario de subida con el fichero clientes-2026-q4.csv de 87,1 KiB seleccionado](docs/screenshots/02-nuevo-csv.png) |
+| **Trabajo en cola** | **Trabajo completado** |
+| ![Detalle de un trabajo en estado En cola, esperando a que un worker lo recoja](docs/screenshots/03-detalle-en-cola.png) | ![Detalle de un trabajo completado con 1.800 filas y 5 columnas y enlace para descargar las estadísticas](docs/screenshots/04-detalle-completado.png) |
+| **Trabajo fallido** | **Detalle en móvil** |
+| ![Detalle de un trabajo fallido por la línea 151 con el botón Reintentar trabajo](docs/screenshots/05-detalle-fallido.png) | ![Detalle de un trabajo completado en una pantalla de 390 píxeles de ancho](docs/screenshots/06-movil.png) |
+
+Se regeneran con `./scripts/screenshots.sh`: levanta un Compose limpio en el proyecto `queuelab-shots` (sin tocar tus volúmenes), siembra por la API cinco CSV deterministas con datos de `example.com`, captura con Playwright y lo apaga. Necesita los puertos 3000 y 8080 libres, `npm ci` en `frontend/` y `npx playwright install chromium`. Los ids y las fechas cambian en cada ejecución.
 
 ## Arquitectura
 
 ```mermaid
 flowchart LR
-    Client([Cliente / Dashboard]) -->|REST /api/v1/jobs| API[API<br/>Spring Boot]
-    API -->|Job + evento outbox<br/>misma transacción| PG[(PostgreSQL)]
-    API -->|publica evento outbox| MQ{{RabbitMQ}}
-    API -.->|cuota de envíos<br/>por cliente| Redis[(Redis)]
-    MQ -->|mensaje con jobId| Worker[Worker<br/>Spring Boot]
-    Worker -->|carga datos, guarda<br/>estado y resultado| PG
-    Worker -.->|archivos de entrada/salida| Storage[(Storage)]
-    Dashboard[Dashboard<br/>Next.js] -->|consulta estado| API
+    D[Dashboard<br/>Next.js] -->|REST + polling| A[API<br/>Spring Boot]
+    A -->|trabajo + evento outbox<br/>1 transacción| P[(PostgreSQL)]
+    A -->|outbox → publisher confirms<br/>mensaje con jobId| M{{RabbitMQ}}
+    M -->|consumo, 1 mensaje = 1 jobId| W[Worker<br/>Spring Boot]
+    W -->|UPDATE condicional<br/>estado y resultado| P
 ```
 
-Flujo de un trabajo: **cliente → API → RabbitMQ → worker → PostgreSQL / Storage**.
+- **API (`backend/api`):** valida y guarda el trabajo, publica el outbox y sirve estado y resultados. Es la dueña del esquema (migraciones Flyway). Redis solo guarda los contadores de la cuota por IP.
+- **Worker (`backend/worker`):** sin HTTP de negocio. Reclama, ejecuta y escribe el estado (`QUEUED` → `RUNNING` → `COMPLETED` / `FAILED`, con `RETRYING` entre intentos); lo que no puede procesar acaba en la DLQ `queuelab.jobs.queued.dlq`.
+- **Datos:** PostgreSQL es la fuente de verdad y RabbitMQ solo transporta el `jobId`. Los ficheros de entrada y resultado viven en un volumen compartido por API y worker.
 
-| Proceso | Responsabilidad | Lo que NO hace |
-|---|---|---|
-| **API** (`backend/api`) | Recibe y valida trabajos, los persiste (`QUEUED`), expone estado y listados, publica los mensajes a RabbitMQ. **Es la dueña del esquema**: ejecuta las migraciones Flyway al arrancar. | No procesa trabajos. |
-| **Worker** (`backend/worker`) | Consume mensajes, ejecuta el trabajo, guarda estados (`RUNNING`, `COMPLETED`, `FAILED`, `RETRYING`) y resultado. Sin servidor HTTP. | No expone HTTP ni ejecuta migraciones. |
-| **Core** (`backend/core`) | Librería compartida: migraciones SQL y, más adelante, modelo, repositorios y contrato de mensajes. | No es un proceso. |
-| **Dashboard** (`frontend`) | Interfaz web que consulta la API. | No habla con RabbitMQ ni con PostgreSQL directamente. |
-| **PostgreSQL** | Fuente de verdad del estado de los trabajos. | |
-| **RabbitMQ** | Desacopla API y worker; el mensaje solo lleva el identificador del trabajo. | |
-| **Redis** | Contadores del límite de envíos por cliente, compartidos entre instancias de la API. | No guarda trabajos ni estado: si cae, la API deja de limitar pero sigue aceptando trabajos. |
+## Decisiones de diseño
 
-Estados de un trabajo: `QUEUED` → `RUNNING` → `COMPLETED` / `FAILED`, con `RETRYING`
-entre intentos.
+| Decisión | Por qué | Coste |
+| --- | --- | --- |
+| **Outbox en vez de publicar en RabbitMQ tras el commit** | Si el proceso cae entre el commit y la publicación no se pierde el evento: queda en la tabla. | Una tabla y un dispatcher más; el techo de publicación es ≈49 eventos/s con la configuración por defecto. |
+| **Reclamo con `UPDATE ... WHERE status = 'QUEUED'` en vez de locks distribuidos** | Un mensaje duplicado no ejecuta el trabajo dos veces: el segundo reclamo no actualiza ninguna fila. | Entrega al menos una vez: hay duplicados que se descartan en el worker, no en el broker. |
+| **Mensaje solo con `jobId` en vez de llevar el contenido** | PostgreSQL es la única fuente de verdad; el mensaje no puede quedar desfasado. | Cada consumo lee la base de datos. |
+| **Concurrencia fija por worker en vez de adaptativa** | Predecible: 8 hilos dan 40,2 trabajos/s. | Con 16 hilos el throughput no mejora y la latencia p50 pasa de 133 a 272 ms; hay que ajustarla a mano. |
+| **Cuota de envíos en Redis en vez de en memoria** | Los contadores se comparten entre varias instancias de la API. | Una dependencia más; si Redis cae, la API deja de limitar. |
 
-Stack: Java 25, Spring Boot 4.1, PostgreSQL 18, RabbitMQ 4, Redis 7, Flyway, Next.js 16, Docker Compose.
-Redis está previsto para más adelante y aún no se usa.
+## Limitaciones conocidas
 
-## Estructura del repositorio
+- **Sin autenticación ni autorización:** cualquiera que alcance la API puede crear y consultar trabajos (hallazgo H3 de la [revisión de seguridad](docs/security/upload-api-review.md), el riesgo principal).
+- **La cuota usa la IP del socket:** detrás de un proxy inverso todos los clientes comparten contador (H4). Si Redis no responde, no se limita.
+- **Ficheros sin cifrar y sin cuota total de almacenamiento** (H7); sin TLS en ningún punto.
+- **Solo dos tipos de trabajo:** `noop` y `csv-import`. No hay otros.
+- **Rendimiento medido en una sola máquina** (Apple M4 Pro, todo en local), con un solo worker y una sola API, y con la cuota y la contrapresión desactivadas. No se ha medido con varios workers ni varias APIs.
+- **La tabla de la lista de trabajos se recorta en pantallas de 390 px:** la columna «Creado» no cabe.
+- **Los tests e2e del dashboard no corren en CI** y solo se han probado con Chromium.
+
+El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/issues); no se promete nada que no esté ahí cerrado.
+
+## Calidad
+
+- **332 métodos de test Java** (core 65, api 161, worker 91, e2e 15; cuenta por `@Test`, `@ParameterizedTest` y `@RepeatedTest`), con PostgreSQL y RabbitMQ reales mediante Testcontainers. El workflow [`backend.yml`](.github/workflows/backend.yml) ejecuta `./mvnw verify`.
+- **59 tests de vitest** y [`frontend.yml`](.github/workflows/frontend.yml): lint, comprobación de tipos, tests y build.
+- **4 pruebas e2e de Playwright** (`frontend/e2e/csv-journey.spec.ts`) con la pila real. **No se ejecutan en CI**: se lanzan a mano con `npm run e2e` ([`docs/e2e-dashboard.md`](docs/e2e-dashboard.md)).
+- **No cubierto:** Linux, otros navegadores, más de dos réplicas del worker y carga sostenida. Marcar los checks de CI como obligatorios en la protección de `main` está pendiente.
+
+## Documentación
+
+| Documento | Contenido |
+| --- | --- |
+| [`docs/development.md`](docs/development.md) | Puesta en marcha con API, worker y dashboard fuera de contenedores, e índice de toda la documentación. |
+| [`docs/compose-stack.md`](docs/compose-stack.md) | Stack completo con Compose: servicios, puertos, volúmenes, réplicas del worker y qué está verificado. |
+| [`docs/performance/capacity.md`](docs/performance/capacity.md) | Límites del sistema, el coste de cada uno y cómo cambiarlos; resultados en [`benchmark-results.md`](docs/performance/benchmark-results.md). |
+| [`docs/observability/dashboard.md`](docs/observability/dashboard.md) | Prometheus y Grafana locales; métricas y trazas en la misma carpeta. |
+| [`docs/security/upload-api-review.md`](docs/security/upload-api-review.md) | Revisión de seguridad de la subida de ficheros y la API. |
+| [`docs/csv-workload.md`](docs/csv-workload.md) | Contrato del trabajo `csv-import`: formato, límites, estadísticas y fallos. |
+
+## Estructura
 
 ```
 .
-├── backend/            Maven multi-módulo: core, api, worker
-├── frontend/           Dashboard Next.js (App Router, TypeScript)
-├── docs/               Notas del proyecto y contrato del trabajo CSV (docs/csv-workload.md)
-├── docker-compose.yml  PostgreSQL, RabbitMQ y Redis para desarrollo
-└── .env.example        Variables de entorno de ejemplo
+├── backend/              Maven multi-módulo (Java 25, Spring Boot 4.1)
+│   ├── core/             Migraciones SQL, outbox, almacenamiento de ficheros y topología de mensajería
+│   ├── api/              API REST, outbox y dispatcher
+│   ├── worker/           Consumidor, reclamo, reintentos y trabajos
+│   └── e2e/              Pruebas end-to-end del backend
+├── frontend/             Dashboard Next.js 16 (App Router) con vitest y Playwright
+├── observability/        Configuración de Prometheus y dashboard de Grafana
+├── docs/                 Documentación, benchmark y capturas (docs/screenshots)
+├── scripts/              Regeneración de las capturas
+├── .github/workflows/    CI del backend y del dashboard
+├── docker-compose.yml    Stack completo y perfil `observability`
+└── .env.example          Variables de entorno de ejemplo
 ```
 
-## Puesta en marcha desde cero
+## Despliegue
 
-### Requisitos
+- **Desplegado:** nada. No hay demo pública ni entorno alojado.
+- **Solo local:** Docker Compose con credenciales de desarrollo y puertos en `127.0.0.1`; no está pensado para exponerse.
+- **Pendiente:** el grupo de release (issues #58–#63) sigue abierto.
 
-- Docker con Compose v2
-- JDK 25 (el Maven Wrapper se incluye: no hace falta instalar Maven)
-- Node.js 20.9 o superior y npm
+## Licencia
 
-### 1. Configuración
-
-```bash
-cp .env.example .env                  # valores de desarrollo; .env no se versiona
-cp frontend/.env.example frontend/.env.local
-```
-
-### 2. Servicios locales (PostgreSQL, RabbitMQ y Redis)
-
-```bash
-docker compose up -d --wait postgres rabbitmq redis   # solo la infraestructura; espera a que estén healthy
-```
-
-> Con `docker compose up -d --wait` a secas se levanta **todo el stack** (también API, worker y dashboard en
-> contenedores): ver [Stack completo con Compose](#stack-completo-con-compose). No lo mezcles con los pasos 3 y 4:
-> la API y el dashboard del contenedor ocupan los puertos 8080 y 3000.
-
-PostgreSQL queda en `localhost:5434`, RabbitMQ en `localhost:5672`
-(consola en http://localhost:15672) y Redis en `localhost:6379`. Credenciales de desarrollo: `queuelab` / `queuelab`.
-
-### 3. Backend
-
-```bash
-export JAVA_HOME=$(/usr/libexec/java_home -v 25)   # macOS; en Linux, la ruta de su JDK 25
-cd backend && ./mvnw verify                        # compila y prueba (las pruebas usan Docker)
-
-# En terminales separadas, desde la raíz del repositorio:
-SPRING_PROFILES_ACTIVE=local java -jar backend/api/target/queuelab-api-0.1.0-SNAPSHOT.jar
-SPRING_PROFILES_ACTIVE=local java -jar backend/worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar
-```
-
-La API escucha en http://localhost:8080 (`/actuator/health`) y aplica las migraciones al
-arrancar. El perfil `local` aporta las contraseñas de desarrollo; sin él hay que definir
-`QUEUELAB_DB_PASSWORD` y `QUEUELAB_RABBITMQ_PASSWORD`.
-
-### 4. Dashboard
-
-```bash
-cd frontend
-npm ci
-npm run dev                           # http://localhost:3000
-```
-
-Otros scripts: `npm run lint`, `npm run typecheck`, `npm run build`. El dashboard llama a la API desde el
-navegador (`NEXT_PUBLIC_API_URL`), así que la API debe admitir su origen: por defecto `http://localhost:3000`
-(`QUEUELAB_CORS_ALLOWED_ORIGINS`). Detalles en [`frontend/README.md`](frontend/README.md).
-
-### Stack completo con Compose
-
-Para probar el flujo completo sin instalar Java ni Node, solo con Docker:
-
-```bash
-docker compose up -d --wait           # construye las imágenes la primera vez (unos minutos) y espera a que estén healthy
-# Dashboard: http://localhost:3000 · API: http://localhost:8080/actuator/health
-```
-
-Levanta PostgreSQL, RabbitMQ, Redis, la API, el worker y el dashboard; sube un CSV en el dashboard y se procesa de
-extremo a extremo. Detalles, puertos, volúmenes y límites en [`docs/compose-stack.md`](docs/compose-stack.md).
-
-### Parar y limpiar
-
-```bash
-docker compose down                   # conserva los datos
-docker compose down -v                # borra también los volúmenes
-```
-
-## Más documentación
-
-- [`backend/README.md`](backend/README.md): variables `QUEUELAB_*`, perfiles y migraciones.
-- [`.env.example`](.env.example) y [`frontend/.env.example`](frontend/.env.example): todas las variables explicadas.
-- [`docs/performance/benchmark-results.md`](docs/performance/benchmark-results.md): benchmark de throughput y latencia según el límite de concurrencia del worker (reproducible con `docs/performance/benchmark.py`).
-- [`docs/performance/capacity.md`](docs/performance/capacity.md): capacidad, trade-offs de cada límite (concurrencia, `prefetch`, contrapresión, cuota, outbox, lease) y cómo cambiarlos con seguridad.
-- [`docs/observability/tracing.md`](docs/observability/tracing.md): trazas OpenTelemetry que unen petición HTTP, outbox y worker (spans, configuración, degradación).
-- [`docs/observability/metrics.md`](docs/observability/metrics.md): métricas Prometheus de trabajos y cola (catálogo, endpoints y limitaciones).
-- [`docs/observability/dashboard.md`](docs/observability/dashboard.md): Prometheus y Grafana locales con el dashboard de cola, reintentos y DLQ (`docker compose --profile observability up -d`).
-- [`docs/security/upload-api-review.md`](docs/security/upload-api-review.md): revisión de seguridad de la subida de ficheros y la API.
-- [`docs/integration-tests.md`](docs/integration-tests.md): tests de integración con PostgreSQL y RabbitMQ reales (Testcontainers).
-- [`docs/e2e-dashboard.md`](docs/e2e-dashboard.md): pruebas e2e del dashboard con Playwright.
-- [`docs/containers-backend.md`](docs/containers-backend.md) y [`docs/containers-frontend.md`](docs/containers-frontend.md): imágenes de API, worker y dashboard.
-- [`docs/ci-backend.md`](docs/ci-backend.md): CI del backend y el worker en GitHub Actions.
-- [`docs/ci-frontend.md`](docs/ci-frontend.md): CI del dashboard (lint, tipos, tests y build) en GitHub Actions.
-- [`docs/compose-stack.md`](docs/compose-stack.md): stack completo (API, worker, dashboard, PostgreSQL, RabbitMQ y Redis) con `docker compose up`.
+[MIT](LICENSE) © 2026 David Rodríguez.
