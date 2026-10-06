@@ -30,6 +30,8 @@ final class AppProcess implements AutoCloseable {
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-jar", jar.toString());
         // API y worker comparten el almacenamiento, dentro de target/ para no ensuciar el árbol de trabajo.
         builder.environment().put("QUEUELAB_STORAGE_DIRECTORY", base.resolve("target/e2e-storage").toString());
+        // Los e2e no levantan Redis: sin él el límite de envíos (que deja pasar si no lo alcanza) solo metería ruido.
+        builder.environment().put("QUEUELAB_RATE_LIMIT_ENABLED", "false");
         builder.environment().putAll(env);
         builder.redirectErrorStream(true).redirectOutput(log.toFile());
         return new AppProcess(module, log, builder.start());

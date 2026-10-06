@@ -28,7 +28,8 @@ class CorsConfig {
             cors.setAllowedOrigins(List.of(allowedOrigins));
             cors.setAllowedMethods(List.of("GET", "POST"));
             cors.setAllowedHeaders(List.of("Content-Type", "Idempotency-Key"));
-            cors.setExposedHeaders(List.of("Location", "Content-Disposition"));
+            cors.setExposedHeaders(List.of("Location", "Content-Disposition", "Retry-After", "RateLimit-Limit",
+                    "RateLimit-Remaining", "RateLimit-Reset"));
             source.registerCorsConfiguration("/api/**", cors);
         }
         return new CorsFilter(source);

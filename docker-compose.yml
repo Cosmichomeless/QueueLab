@@ -1,4 +1,4 @@
-# Servicios locales de QueueLab para desarrollo (PostgreSQL y RabbitMQ).
+# Servicios locales de QueueLab para desarrollo (PostgreSQL, RabbitMQ y Redis).
 # Los valores por defecto son SOLO para desarrollo local; sobrescríbalos con un
 # fichero .env (ver .env.example). Los puertos solo se publican en 127.0.0.1.
 # PostgreSQL usa el puerto 5434 del host para no chocar con otras instancias locales (5432/5433).
@@ -36,6 +36,20 @@ services:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Solo guarda los contadores del límite de envíos (claves con expiración): no hay nada que conservar, así que
+  # no persiste a disco y un reinicio solo reinicia las cuotas.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10
     restart: unless-stopped
 

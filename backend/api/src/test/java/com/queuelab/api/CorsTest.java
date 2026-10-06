@@ -49,9 +49,10 @@ class CorsTest {
     }
 
     @Test
-    void downloadHeadersAreExposedToTheBrowser() throws Exception {
+    void downloadAndRateLimitHeadersAreExposedToTheBrowser() throws Exception {
         mvc.perform(get("/api/v1/jobs").header("Origin", "http://localhost:3000"))
-                .andExpect(header().string("Access-Control-Expose-Headers", "Location, Content-Disposition"));
+                .andExpect(header().string("Access-Control-Expose-Headers",
+                        "Location, Content-Disposition, Retry-After, RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset"));
     }
 
     @Test

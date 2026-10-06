@@ -26,6 +26,7 @@ import com.queuelab.api.job.ResultNotReadyException;
 import com.queuelab.api.job.UnsupportedUploadTypeException;
 import com.queuelab.api.job.UploadTooLargeException;
 import com.queuelab.api.queue.QueueSaturatedException;
+import com.queuelab.api.ratelimit.RateLimitExceededException;
 
 /**
  * Formato único de errores de la API: {@code application/problem+json} (RFC 9457).
@@ -103,6 +104,27 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty("retryAfterSeconds", status.retryAfterSeconds());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(status.retryAfterSeconds()))
+                .contentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    /**
+     * Cuota de envíos agotada: {@code 429} con {@code Retry-After} (segundos hasta que se reinicie la ventana del
+     * cliente) y, en el cuerpo, la cuota aplicada.
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> rateLimited(RateLimitExceededException ex) {
+        var decision = ex.decision();
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+        problem.setTitle("Demasiados envíos");
+        problem.setProperty("limit", decision.limit());
+        problem.setProperty("windowSeconds", ex.windowSeconds());
+        problem.setProperty("retryAfterSeconds", decision.resetSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(decision.resetSeconds()))
+                .header("RateLimit-Limit", String.valueOf(decision.limit()))
+                .header("RateLimit-Remaining", "0")
+                .header("RateLimit-Reset", String.valueOf(decision.resetSeconds()))
                 .contentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
     }

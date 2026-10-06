@@ -23,7 +23,7 @@ java -jar backend/api/target/queuelab-api-0.1.0-SNAPSHOT.jar
 java -jar backend/worker/target/queuelab-worker-0.1.0-SNAPSHOT.jar
 ```
 
-## Servicios locales (PostgreSQL y RabbitMQ)
+## Servicios locales (PostgreSQL, RabbitMQ y Redis)
 
 Se arrancan con Docker Compose desde la raíz del repositorio:
 
@@ -39,10 +39,11 @@ docker compose down -v           # parar y borrar los volúmenes
 | PostgreSQL 18 | `localhost` | `5434` | `queuelab` / `queuelab`, base `queuelab` |
 | RabbitMQ 4 (AMQP) | `localhost` | `5672` | `queuelab` / `queuelab` |
 | RabbitMQ Management | http://localhost:15672 | `15672` | `queuelab` / `queuelab` |
+| Redis 7 | `localhost` | `6379` | sin contraseña; sin persistencia (solo guarda contadores con expiración) |
 
 PostgreSQL usa el puerto 5434 del host para no chocar con otras instancias locales
 (5432/5433). Los puertos y credenciales se pueden cambiar con variables de entorno
-(`POSTGRES_PORT`, `POSTGRES_PASSWORD`, `RABBITMQ_PORT`…).
+(`POSTGRES_PORT`, `POSTGRES_PASSWORD`, `RABBITMQ_PORT`, `REDIS_PORT`…).
 
 ## Configuración de API y worker
 
@@ -58,6 +59,12 @@ Ambos procesos leen las URLs y credenciales de variables de entorno
 | `QUEUELAB_RABBITMQ_PORT` | `5672` | Puerto AMQP |
 | `QUEUELAB_RABBITMQ_USER` | `queuelab` | Usuario de RabbitMQ |
 | `QUEUELAB_RABBITMQ_PASSWORD` | _(vacío)_ | Contraseña de RabbitMQ |
+| `QUEUELAB_REDIS_HOST` | `localhost` | Solo la API. Host de Redis (contadores del límite de envíos) |
+| `QUEUELAB_REDIS_PORT` | `6379` | Solo la API. Puerto de Redis |
+| `QUEUELAB_REDIS_PASSWORD` | _(vacío)_ | Solo la API. Contraseña de Redis, si la tiene |
+| `QUEUELAB_RATE_LIMIT_ENABLED` | `true` | Solo la API. `false` desactiva el límite de envíos (y no se usa Redis) |
+| `QUEUELAB_RATE_LIMIT_MAX_REQUESTS` | `60` | Solo la API. Envíos que puede hacer cada cliente (IP) por ventana; mínimo 1 |
+| `QUEUELAB_RATE_LIMIT_WINDOW` | `1m` | Solo la API. Duración de la ventana (`30s`, `1m`…); mínimo 1 s |
 | `QUEUELAB_STORAGE_DIRECTORY` | `./data/storage` | Directorio del almacenamiento de ficheros (API y worker deben compartirlo; ver [Almacenamiento](#almacenamiento-de-ficheros)) |
 | `QUEUELAB_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Solo la API. Orígenes del dashboard que pueden llamarla desde el navegador (CORS, solo en `/api/**`, métodos `GET` y `POST`), separados por comas; vacío desactiva CORS. Cualquier otro origen recibe 403. |
 | `QUEUELAB_BACKPRESSURE_MAX_PENDING` | `1000` | Solo la API. Umbral de contrapresión: con tantos trabajos esperando worker los envíos nuevos reciben `503` (ver [Contrapresión](#contrapresión-cola-saturada)). |
@@ -150,6 +157,7 @@ debe ser uno de los tipos conocidos, que se configuran en `queuelab.jobs.types` 
 | `Idempotency-Key` vacía, de más de 255 caracteres o con espacios/no ASCII | 400 indicando la cabecera |
 | `Idempotency-Key` ya usada con otra carga | 409 «Conflicto de idempotencia» |
 | Trabajo inexistente | 404 «Trabajo no encontrado» |
+| Cuota de envíos agotada (`POST /jobs`, `POST /jobs/csv`) | 429 «Demasiados envíos» con `Retry-After` (ver «Límite de envíos») |
 | Cola saturada (`POST /jobs`, `POST /jobs/csv`, `POST /jobs/{id}/retry`) | 503 «Cola saturada» con `Retry-After` (ver «Contrapresión») |
 | Fallo no previsto | 500 «Error interno» genérico; la traza solo se escribe en el log |
 
@@ -247,8 +255,8 @@ espera más y la latencia crece sin tope. La API se protege rechazando trabajo n
    "pending":3,"maxPending":3,"retryAfterSeconds":12}
   ```
 
-  Se usa 503 y no 429 porque el límite es de capacidad del sistema, no de un cliente concreto (la cuota por cliente
-  llega con #42).
+  Se usa 503 y no 429 porque el límite es de capacidad del sistema, no de un cliente concreto; la cuota por cliente
+  es el 429 de «Límite de envíos».
 - **Qué se comprueba**: lo que encola trabajo nuevo: `POST /api/v1/jobs`, `POST /api/v1/jobs/csv` (antes de guardar
   el fichero, para no gastar disco en lo que se va a rechazar) y `POST /api/v1/jobs/{id}/retry`. Repetir una
   `Idempotency-Key` ya aceptada no añade carga y sigue respondiendo `200`. Las lecturas nunca se rechazan.
@@ -266,6 +274,54 @@ espera más y la latencia crece sin tope. La API se protege rechazando trabajo n
 - `BackpressureTest` cubren: bajo umbral, en el umbral (503, cabecera y cuerpo, nada guardado),
   qué estados cuentan, CSV sin fichero huérfano, idempotencia, reintento manual, el endpoint y la validación de la
   configuración.
+
+### Límite de envíos (cuota por cliente)
+
+Complementa a la contrapresión: ésta protege al sistema de la **cola** (503, global); la cuota protege de **un cliente**
+que envía demasiado deprisa (429, por cliente). Se cuenta en Redis para que valga lo mismo con una o con varias
+instancias de la API detrás de un balanceador.
+
+- **Qué se limita**: los envíos, `POST /api/v1/jobs` y `POST /api/v1/jobs/csv`, que **comparten** la misma cuota.
+  Las lecturas, `GET /api/v1/queue`, `retry` y `actuator` no cuentan. Se aplica antes que ninguna otra comprobación
+  (también que la contrapresión), de modo que un envío rechazado no se valida, no se guarda ni se encola. Una
+  repetición con `Idempotency-Key` sí cuenta: sigue siendo una petición del cliente.
+- **Quién es «un cliente»**: la IP remota de la conexión. Detrás de un proxy o balanceador hay que activar
+  `server.forward-headers-strategy` (`native` o `framework`) para que sea la del cliente real; si no, todos los
+  clientes compartirían la cuota del proxy. No hay autenticación en la API, así que la IP es lo único que la
+  identifica (clientes tras una misma NAT comparten cuota).
+- **Cuota**: `queuelab.rate-limit.max-requests` envíos (por defecto **60**) por `queuelab.rate-limit.window`
+  (por defecto **1 m**). Es una **ventana fija**: la primera petición abre la ventana y el contador se borra solo al
+  terminar. Permite una ráfaga de hasta `max-requests` al final de una ventana y otra al principio de la siguiente
+  (hasta el doble en un instante); es el precio de un contador sencillo y barato.
+- **Respuesta al exceder**: `429 Too Many Requests` con `Retry-After: <segundos hasta que se reinicie la ventana>` y
+  un `application/problem+json`:
+
+  ```json
+  {"title":"Demasiados envíos","status":429,"detail":"Has superado el límite de 5 envíos cada 60 s. Inténtalo de nuevo en 41 s.",
+   "limit":5,"windowSeconds":60,"retryAfterSeconds":41}
+  ```
+
+  Todas las respuestas de envío (también las `201`) llevan `RateLimit-Limit`, `RateLimit-Remaining` y
+  `RateLimit-Reset` (segundos), para que un cliente se autorregule sin esperar al 429. El dashboard puede leerlas
+  también desde el navegador (están en las cabeceras expuestas de CORS).
+- **Compartida entre instancias**: la clave `queuelab:ratelimit:submit:<ip>` vive en Redis. Incrementar y fijar la
+  expiración ocurren en **un solo script Lua**, así que son atómicos aunque varias instancias cuenten a la vez, y el
+  tiempo de la ventana lo mide Redis (no los relojes de las instancias).
+- **Si Redis no responde**: la petición **se deja pasar** (*fail-open*) y se escribe un `WARN` en el log
+  (`Redis no responde: se omite el límite de envíos…`). Es coherente con que la API acepte trabajos sin RabbitMQ: la
+  cuota es una protección, no una condición de corrección, y `/actuator/health` no depende de Redis. Coste: con
+  Redis caído cada envío espera hasta el timeout (500 ms, `spring.data.redis.timeout`). Para no usar Redis hay que
+  poner `QUEUELAB_RATE_LIMIT_ENABLED=false`. Reiniciar Redis (sin persistencia) reinicia las cuotas.
+- **Cómo elegir el valor**: la cuota por cliente × el número de clientes activos debe quedar por debajo de lo que
+  el sistema absorbe; si no, quien protege es la contrapresión (503). Un uso interactivo del dashboard no pasa de
+  unos pocos envíos por minuto; los valores por defecto (60/min) dejan margen a un script razonable.
+- **Probarlo a mano**: `docker compose up -d redis`, dos API en puertos distintos con
+  `QUEUELAB_RATE_LIMIT_MAX_REQUESTS=5 QUEUELAB_RATE_LIMIT_WINDOW=60s` y alternar `curl -X POST …/api/v1/jobs` entre
+  ambas: el sexto envío, vaya a la instancia que vaya, recibe 429.
+- Pruebas (Redis real con Testcontainers): `RateLimitTest` (429 con `Retry-After` y cabeceras, nada guardado, CSV y
+  JSON comparten cuota, clientes independientes, lecturas libres) y `SubmissionRateLimiterTest` (ventana, reinicio al
+  expirar, cuota compartida entre dos instancias con conexiones independientes, concurrencia sin pasarse de la cuota,
+  Redis inaccesible y validación de la configuración).
 
 ## Pruebas del ciclo de vida
 

@@ -20,6 +20,7 @@ flowchart LR
     Client([Cliente / Dashboard]) -->|REST /api/v1/jobs| API[API<br/>Spring Boot]
     API -->|Job + evento outbox<br/>misma transacción| PG[(PostgreSQL)]
     API -->|publica evento outbox| MQ{{RabbitMQ}}
+    API -.->|cuota de envíos<br/>por cliente| Redis[(Redis)]
     MQ -->|mensaje con jobId| Worker[Worker<br/>Spring Boot]
     Worker -->|carga datos, guarda<br/>estado y resultado| PG
     Worker -.->|archivos de entrada/salida| Storage[(Storage)]
@@ -36,11 +37,12 @@ Flujo de un trabajo: **cliente → API → RabbitMQ → worker → PostgreSQL / 
 | **Dashboard** (`frontend`) | Interfaz web que consulta la API. | No habla con RabbitMQ ni con PostgreSQL directamente. |
 | **PostgreSQL** | Fuente de verdad del estado de los trabajos. | |
 | **RabbitMQ** | Desacopla API y worker; el mensaje solo lleva el identificador del trabajo. | |
+| **Redis** | Contadores del límite de envíos por cliente, compartidos entre instancias de la API. | No guarda trabajos ni estado: si cae, la API deja de limitar pero sigue aceptando trabajos. |
 
 Estados de un trabajo: `QUEUED` → `RUNNING` → `COMPLETED` / `FAILED`, con `RETRYING`
 entre intentos.
 
-Stack: Java 25, Spring Boot 4.1, PostgreSQL 18, RabbitMQ 4, Flyway, Next.js 16, Docker Compose.
+Stack: Java 25, Spring Boot 4.1, PostgreSQL 18, RabbitMQ 4, Redis 7, Flyway, Next.js 16, Docker Compose.
 Redis está previsto para más adelante y aún no se usa.
 
 ## Estructura del repositorio
@@ -50,7 +52,7 @@ Redis está previsto para más adelante y aún no se usa.
 ├── backend/            Maven multi-módulo: core, api, worker
 ├── frontend/           Dashboard Next.js (App Router, TypeScript)
 ├── docs/               Notas del proyecto y contrato del trabajo CSV (docs/csv-workload.md)
-├── docker-compose.yml  PostgreSQL y RabbitMQ para desarrollo
+├── docker-compose.yml  PostgreSQL, RabbitMQ y Redis para desarrollo
 └── .env.example        Variables de entorno de ejemplo
 ```
 
@@ -69,14 +71,14 @@ cp .env.example .env                  # valores de desarrollo; .env no se versio
 cp frontend/.env.example frontend/.env.local
 ```
 
-### 2. Servicios locales (PostgreSQL y RabbitMQ)
+### 2. Servicios locales (PostgreSQL, RabbitMQ y Redis)
 
 ```bash
 docker compose up -d --wait           # espera a que estén healthy
 ```
 
-PostgreSQL queda en `localhost:5434` y RabbitMQ en `localhost:5672`
-(consola en http://localhost:15672). Credenciales de desarrollo: `queuelab` / `queuelab`.
+PostgreSQL queda en `localhost:5434`, RabbitMQ en `localhost:5672`
+(consola en http://localhost:15672) y Redis en `localhost:6379`. Credenciales de desarrollo: `queuelab` / `queuelab`.
 
 ### 3. Backend
 

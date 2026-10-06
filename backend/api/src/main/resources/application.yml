@@ -22,6 +22,15 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+  data:
+    redis:
+      host: ${QUEUELAB_REDIS_HOST:localhost}
+      port: ${QUEUELAB_REDIS_PORT:6379}
+      password: ${QUEUELAB_REDIS_PASSWORD:}
+      # Redis solo guarda contadores de cuota: si no responde, la API prefiere dejar pasar la petición antes que
+      # esperar (ver «Límite de envíos» en backend/README.md).
+      timeout: 500ms
+      connect-timeout: 500ms
 
 queuelab:
   jobs:
@@ -40,6 +49,13 @@ queuelab:
     max-pending: ${QUEUELAB_BACKPRESSURE_MAX_PENDING:1000}
     retry-after: ${QUEUELAB_BACKPRESSURE_RETRY_AFTER:30s}
 
+  rate-limit:
+    # Cuota de envíos por cliente (IP remota), compartida entre instancias de la API a través de Redis.
+    # Ver backend/README.md, «Límite de envíos».
+    enabled: ${QUEUELAB_RATE_LIMIT_ENABLED:true}
+    max-requests: ${QUEUELAB_RATE_LIMIT_MAX_REQUESTS:60}
+    window: ${QUEUELAB_RATE_LIMIT_WINDOW:1m}
+
   cors:
     # Orígenes del dashboard que pueden llamar a la API desde el navegador (separados por comas; vacío = ninguno).
     allowed-origins: ${QUEUELAB_CORS_ALLOWED_ORIGINS:http://localhost:3000}
@@ -53,6 +69,9 @@ management:
   health:
     rabbit:
       # La API acepta trabajos aunque RabbitMQ esté caído (el outbox los conserva): no afecta a su salud.
+      enabled: false
+    redis:
+      # Sin Redis no hay límite de envíos (se deja pasar), pero la API sigue aceptando trabajos: no afecta a su salud.
       enabled: false
   endpoints:
     web:
