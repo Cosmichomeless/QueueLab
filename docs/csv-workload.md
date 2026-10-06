@@ -84,7 +84,7 @@ Dos cosas, ambas deterministas para un mismo fichero:
 | Situación | Resultado |
 |---|---|
 | Cabecera ausente, vacía, con nombres vacíos o duplicados, o con más de 100 columnas | `FAILED` con un mensaje claro; **sin reintentos** (reintentar no cambia el fichero). |
-| Fila con distinto número de campos, o comillas sin cerrar | `FAILED` indicando el número de línea; sin reintentos (implementado en #30; los tests de filas erróneas y la limpieza, en #32/#33). |
+| Fila con distinto número de campos, o comillas sin cerrar | `FAILED` indicando el número de línea; sin reintentos: el primer intento es el único (`attempts = 1`) y el trabajo queda `FAILED` (#30, verificado en #32). |
 | Fichero no encontrado en el almacenamiento, o error de E/S | Fallo transitorio: se reintenta con espera exponencial como cualquier trabajo. |
 
 El mensaje de error nunca incluye el contenido de las filas, solo la línea y el motivo.
@@ -93,5 +93,23 @@ El mensaje de error nunca incluye el contenido de las filas, solo la línea y el
 
 El CSV subido y el fichero de estadísticas viven en el directorio configurado de `FileStorage`
 (`queuelab.storage.directory`, ver [`backend/README.md`](../backend/README.md#almacenamiento-de-ficheros)) bajo
-`inputs/` y `results/`; el nombre lo asigna el sistema (`<jobId>`), nunca el cliente. La política de limpieza
-(cuánto tiempo se conservan y qué se borra al fallar) se detalla en #32.
+`inputs/` y `results/`; el nombre lo asigna el sistema (`<jobId>`), nunca el cliente.
+
+### Política de retención (#32)
+
+El worker ejecuta una limpieza periódica (`StorageCleaner`) con estas reglas:
+
+| Fichero | Cuándo se borra | Propiedad (por defecto) |
+|---|---|---|
+| Entrada de un trabajo `COMPLETED` | 1 h después de terminar: ya no hace falta | `queuelab.cleanup.completed-input-retention` (`1h`) |
+| Entrada de un trabajo `FAILED` | 7 días después de fallar: se conserva para poder **reintentarlo a mano** | `queuelab.cleanup.failed-input-retention` (`7d`) |
+| Resultado (`<jobId>.stats.json`) | 30 días después de terminar | `queuelab.cleanup.result-retention` (`30d`) |
+| Temporales `.tmp-*` de escrituras interrumpidas, y ficheros **huérfanos** (ningún trabajo apunta a ellos) | 1 h después de su última modificación (margen para no borrar una subida en curso) | `queuelab.cleanup.temporary-retention` (`1h`) |
+
+- **Nunca** se toca nada de un trabajo `QUEUED`, `RUNNING` o `RETRYING`: la limpieza solo mira estados terminales.
+- Tras borrar un fichero se anula su referencia (`jobs.input_ref` / `jobs.result_ref`). Un resultado limpiado deja de
+  anunciarse (`resultFile: null`) y su descarga responde `404`; reintentar a mano un fallido cuya entrada ya se
+  limpió termina otra vez en `FAILED` con «El trabajo no tiene fichero de entrada» (sin reintentos inútiles).
+- La referencia se anula **antes** de borrar el fichero y solo si el trabajo sigue terminado: un reintento manual
+  concurrente gana y conserva su entrada. Si el borrado falla, la referencia se restaura y se reintenta en la
+  siguiente pasada.

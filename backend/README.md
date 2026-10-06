@@ -192,7 +192,7 @@ el [almacenamiento](#almacenamiento-de-ficheros) como `inputs/<jobId>.csv` (el n
 - **Sin huérfanos**: todo lo comprobable se comprueba antes de escribir. El límite de tamaño se aplica dos veces (el
   límite de multipart del contenedor corta la subida y el servicio la vuelve a comprobar), así que un fichero grande
   no llega a guardarse. Si la transacción falla después de guardar el fichero, este se borra. Solo una caída del
-  proceso justo entre ambos pasos podría dejar un fichero sin trabajo; la limpieza de #32 lo recoge.
+  proceso justo entre ambos pasos podría dejar un fichero sin trabajo; la limpieza (`StorageCleaner`) lo recoge como huérfano.
 - **Validación mínima en la subida**: tipo declarado, tamaño, no vacío y primera línea UTF-8 no vacía. La cabecera
   completa (nombres, duplicados, nº de columnas) y las filas se validan al procesar (#30/#32), que es donde se conocen
   las reglas de [`docs/csv-workload.md`](../docs/csv-workload.md).
@@ -350,6 +350,24 @@ crean con Flyway). Arranque local: `SPRING_PROFILES_ACTIVE=local java -jar worke
 Las líneas vacías al final se ignoran; una línea vacía en mitad solo es válida si el CSV tiene una columna (es un valor
 vacío). Verificado en real con un CSV de 9,8 MB (323.074 filas) con el worker limitado a `-Xmx80m`.
 
+### Limpieza de ficheros (`StorageCleaner`)
+
+El worker borra periódicamente los ficheros que ya no hacen falta, según la política de retención de
+[`docs/csv-workload.md`](../docs/csv-workload.md#política-de-retención-32): entradas de trabajos `COMPLETED` y `FAILED`,
+resultados antiguos, temporales `.tmp-*` que dejó una escritura interrumpida (`FileStorage.purgeTemporaries`) y ficheros huérfanos (sin ningún trabajo que apunte a ellos; `FileStorage.listReferences` + `JobRepository.isReferenced`). Cada pasada recorre los directorios `inputs/` y `results/`, algo asumible en almacenamiento local.
+Solo mira trabajos en estado terminal; la referencia en `jobs` se anula antes de borrar el fichero (y se restaura si el
+borrado falla), de modo que un reintento manual concurrente no pierde su entrada.
+
+| Propiedad | Por defecto | Significado |
+|---|---|---|
+| `queuelab.cleanup.enabled` | `true` | apaga el planificador (los tests lo desactivan y llaman a `cleanOnce()`) |
+| `queuelab.cleanup.interval` / `initial-delay` | `10m` / `1m` | pausa entre pasadas / espera tras arrancar |
+| `queuelab.cleanup.completed-input-retention` | `1h` | cuánto se conserva la entrada de un trabajo `COMPLETED` |
+| `queuelab.cleanup.failed-input-retention` | `7d` | ídem para `FAILED` (permite el reintento manual) |
+| `queuelab.cleanup.result-retention` | `30d` | cuánto se conserva el resultado descargable |
+| `queuelab.cleanup.temporary-retention` | `1h` | antigüedad mínima de un temporal o de un fichero sin trabajo para considerarlo abandonado |
+| `queuelab.cleanup.batch-size` | `100` | ficheros por pasada y tipo |
+
 ### Reintentos con espera exponencial
 
 Solo se reintenta lo que el ejecutor declara **transitorio** lanzando `TransientJobException`
@@ -483,7 +501,7 @@ define la frontera `FileStorage` y la API y el worker dependen solo de ella; hoy
   (relativo al directorio de trabajo del proceso y ignorado por git). API y worker **deben apuntar al mismo
   directorio**; si corren en máquinas distintas hará falta otra implementación de `FileStorage` (p. ej. un almacén
   de objetos), que es justo lo que esta interfaz permite. Los tests usan `target/`.
-- La política de limpieza de temporales y resultados antiguos se define en #32 (`docs/csv-workload.md`).
+- La política de retención (entradas, resultados, temporales y huérfanos) está en [`docs/csv-workload.md`](../docs/csv-workload.md#política-de-retención-32) y la ejecuta el worker (ver «Limpieza de ficheros»).
 
 ## Prueba de extremo a extremo (`e2e`)
 

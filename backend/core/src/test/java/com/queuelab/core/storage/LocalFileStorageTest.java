@@ -210,4 +210,45 @@ class LocalFileStorageTest {
         assertThat(nested.resolve("inputs")).isDirectory();
         assertThat(nested.resolve("results")).isDirectory();
     }
+
+    @Test
+    void purgeTemporariesRemovesOnlyStaleTemporaries() throws IOException {
+        Path stale = Files.writeString(base.resolve("results").resolve(".tmp-abandoned"), "x");
+        Files.setLastModifiedTime(stale, java.nio.file.attribute.FileTime.from(
+                java.time.Instant.now().minusSeconds(7200)));
+        Path fresh = Files.writeString(base.resolve("inputs").resolve(".tmp-in-progress"), "x");
+        storage.store(StorageArea.INPUT, "keep.csv", bytes("a\n1\n"));
+
+        int purged = storage.purgeTemporaries(java.time.Instant.now().minusSeconds(3600));
+
+        assertThat(purged).isEqualTo(1);
+        assertThat(stale).doesNotExist();
+        assertThat(fresh).exists();
+        assertThat(storage.exists("inputs/keep.csv")).isTrue();
+    }
+
+    @Test
+    void purgeTemporariesNeverTouchesRegularFilesEvenIfOld() throws IOException {
+        storage.store(StorageArea.RESULT, "old.json", bytes("{}"));
+        Files.setLastModifiedTime(base.resolve("results").resolve("old.json"),
+                java.nio.file.attribute.FileTime.from(java.time.Instant.now().minusSeconds(86400)));
+
+        assertThat(storage.purgeTemporaries(java.time.Instant.now())).isZero();
+        assertThat(storage.exists("results/old.json")).isTrue();
+    }
+
+    @Test
+    void listReferencesReturnsOldRegularFilesWithoutTemporaries() throws IOException {
+        storage.store(StorageArea.INPUT, "old.csv", bytes("a\n1\n"));
+        storage.store(StorageArea.INPUT, "new.csv", bytes("a\n1\n"));
+        Files.setLastModifiedTime(base.resolve("inputs").resolve("old.csv"),
+                java.nio.file.attribute.FileTime.from(java.time.Instant.now().minusSeconds(7200)));
+        Path temp = Files.writeString(base.resolve("inputs").resolve(".tmp-x"), "x");
+        Files.setLastModifiedTime(temp, java.nio.file.attribute.FileTime.from(
+                java.time.Instant.now().minusSeconds(7200)));
+
+        assertThat(storage.listReferences(StorageArea.INPUT, java.time.Instant.now().minusSeconds(3600)))
+                .containsExactly("inputs/old.csv");
+        assertThat(storage.listReferences(StorageArea.RESULT, java.time.Instant.now())).isEmpty();
+    }
 }

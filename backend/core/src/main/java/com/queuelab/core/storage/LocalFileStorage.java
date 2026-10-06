@@ -7,7 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * Almacenamiento en un directorio local. Todo acceso pasa por {@link #resolve}, que garantiza que la ruta
@@ -92,6 +95,57 @@ public class LocalFileStorage implements FileStorage {
     }
 
     /** Ruta del fichero de una referencia válida y contenida en el directorio base. */
+    @Override
+    public int purgeTemporaries(Instant olderThan) {
+        int purged = 0;
+        for (StorageArea area : StorageArea.values()) {
+            try (Stream<Path> files = Files.list(base.resolve(area.directory()))) {
+                for (Path file : (Iterable<Path>) files::iterator) {
+                    if (isStaleTemporary(file, olderThan) && deleteQuietly(file)) {
+                        purged++;
+                    }
+                }
+            } catch (IOException e) {
+                throw new StorageException("No se pudo recorrer " + area.directory(), e);
+            }
+        }
+        return purged;
+    }
+
+    @Override
+    public List<String> listReferences(StorageArea area, Instant olderThan) {
+        try (Stream<Path> files = Files.list(base.resolve(area.directory()))) {
+            return files
+                    .filter(file -> !file.getFileName().toString().startsWith(TEMP_PREFIX))
+                    .filter(file -> StorageNames.isValid(file.getFileName().toString()))
+                    .filter(file -> isRegularFileOlderThan(file, olderThan))
+                    .map(file -> StorageNames.reference(area, file.getFileName().toString()))
+                    .toList();
+        } catch (IOException e) {
+            throw new StorageException("No se pudo recorrer " + area.directory(), e);
+        }
+    }
+
+    private static boolean isRegularFileOlderThan(Path file, Instant olderThan) {
+        try {
+            return !Files.isSymbolicLink(file) && Files.isRegularFile(file)
+                    && Files.getLastModifiedTime(file).toInstant().isBefore(olderThan);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static boolean isStaleTemporary(Path file, Instant olderThan) {
+        if (!file.getFileName().toString().startsWith(TEMP_PREFIX) || Files.isSymbolicLink(file)) {
+            return false;
+        }
+        try {
+            return Files.isRegularFile(file) && Files.getLastModifiedTime(file).toInstant().isBefore(olderThan);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private Path resolve(String reference) {
         if (reference == null) {
             throw new InvalidStorageReferenceException("Referencia vacía");
@@ -142,11 +196,12 @@ public class LocalFileStorage implements FileStorage {
         }
     }
 
-    private static void deleteQuietly(Path path) {
+    /** @return {@code true} si borró el fichero; si falla, la limpieza periódica ({@link #purgeTemporaries}) lo recoge */
+    private static boolean deleteQuietly(Path path) {
         try {
-            Files.deleteIfExists(path);
+            return Files.deleteIfExists(path);
         } catch (IOException ignored) {
-            // Es el temporal de una escritura que ya terminó o falló; la limpieza periódica (#32) lo recogerá.
+            return false;
         }
     }
 }

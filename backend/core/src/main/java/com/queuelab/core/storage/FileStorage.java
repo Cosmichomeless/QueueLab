@@ -1,6 +1,8 @@
 package com.queuelab.core.storage;
 
 import java.io.InputStream;
+import java.time.Instant;
+import java.util.List;
 
 /**
  * Frontera de almacenamiento de ficheros (entradas y resultados). La API y el worker dependen de esta
@@ -34,4 +36,18 @@ public interface FileStorage {
 
     /** Borra el fichero; devuelve {@code false} si no existía. */
     boolean delete(String reference);
+
+    /**
+     * Borra los temporales de escrituras interrumpidas (las que dejó un proceso que cayó a medias) cuya última
+     * modificación sea anterior a {@code olderThan}; los más recientes pueden ser escrituras en curso.
+     *
+     * @return cuántos borró
+     */
+    int purgeTemporaries(Instant olderThan);
+
+    /**
+     * Referencias de los ficheros de la zona (sin temporales) cuya última modificación es anterior a
+     * {@code olderThan}. Sirve para encontrar huérfanos: la base de datos decide cuáles lo son.
+     */
+    List<String> listReferences(StorageArea area, Instant olderThan);
 }

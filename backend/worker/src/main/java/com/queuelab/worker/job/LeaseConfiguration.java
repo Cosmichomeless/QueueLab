@@ -19,13 +19,14 @@ class LeaseConfiguration {
     }
 
     /**
-     * Scheduler propio para {@code @Scheduled} (el recuperador). Sin él, Spring usaría {@link #leaseRenewer()}
-     * y una pasada de recuperación lenta retrasaría los latidos de los trabajos en curso.
+     * Scheduler propio para {@code @Scheduled} (recuperador y limpieza). Sin él, Spring usaría {@link #leaseRenewer()}
+     * y una pasada lenta retrasaría los latidos de los trabajos en curso. Dos hilos: una limpieza larga no
+     * debe retrasar la recuperación de trabajos abandonados.
      */
     @Bean
     TaskScheduler recoveryTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(1);
+        scheduler.setPoolSize(2);
         scheduler.setThreadNamePrefix("recovery-");
         scheduler.setDaemon(true);
         return scheduler;

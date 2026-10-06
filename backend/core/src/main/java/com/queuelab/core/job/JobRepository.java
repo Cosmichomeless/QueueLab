@@ -100,6 +100,70 @@ public class JobRepository {
                 .optional();
     }
 
+    /** Fichero asociado a un trabajo terminado, candidato a borrarse. */
+    public record StoredReference(UUID jobId, String reference) {
+    }
+
+    /**
+     * Entradas que ya no hacen falta: las de trabajos {@code COMPLETED} terminados antes de {@code completedBefore}
+     * y las de {@code FAILED} terminados antes de {@code failedBefore} (un fallido conserva su entrada más tiempo
+     * porque puede reintentarse a mano).
+     */
+    public List<StoredReference> findReleasableInputs(java.time.Instant completedBefore, java.time.Instant failedBefore, int limit) {
+        return jdbc.sql("""
+                SELECT id, input_ref AS ref FROM jobs
+                WHERE input_ref IS NOT NULL
+                  AND ((status = 'COMPLETED' AND finished_at < :completedBefore)
+                    OR (status = 'FAILED' AND finished_at < :failedBefore))
+                ORDER BY finished_at LIMIT :limit""")
+                .param("completedBefore", utc(completedBefore))
+                .param("failedBefore", utc(failedBefore))
+                .param("limit", limit)
+                .query((rs, rowNum) -> new StoredReference(rs.getObject("id", UUID.class), rs.getString("ref")))
+                .list();
+    }
+
+    /** Resultados de trabajos {@code COMPLETED} terminados antes de {@code finishedBefore}. */
+    public List<StoredReference> findReleasableResults(java.time.Instant finishedBefore, int limit) {
+        return jdbc.sql("""
+                SELECT id, result_ref AS ref FROM jobs
+                WHERE result_ref IS NOT NULL AND status = 'COMPLETED' AND finished_at < :before
+                ORDER BY finished_at LIMIT :limit""")
+                .param("before", utc(finishedBefore))
+                .param("limit", limit)
+                .query((rs, rowNum) -> new StoredReference(rs.getObject("id", UUID.class), rs.getString("ref")))
+                .list();
+    }
+
+    /**
+     * Suelta la entrada del trabajo solo si sigue terminado ({@code COMPLETED} o {@code FAILED}): si en medio
+     * se reintentó a mano (ya está {@code QUEUED}), no se toca. Se hace <b>antes</b> de borrar el fichero.
+     */
+    public boolean clearInputRef(UUID id, String reference) {
+        return jdbc.sql("""
+                UPDATE jobs SET input_ref = NULL
+                WHERE id = :id AND input_ref = :ref AND status IN ('COMPLETED', 'FAILED')""")
+                .param("id", id)
+                .param("ref", reference)
+                .update() == 1;
+    }
+
+    /** Suelta el resultado de un trabajo {@code COMPLETED}; tras esto la API deja de anunciarlo. */
+    public boolean clearResultRef(UUID id, String reference) {
+        return jdbc.sql("UPDATE jobs SET result_ref = NULL WHERE id = :id AND result_ref = :ref AND status = 'COMPLETED'")
+                .param("id", id)
+                .param("ref", reference)
+                .update() == 1;
+    }
+
+    /** ¿Algún trabajo apunta a este fichero (como entrada o como resultado)? Si no, es un huérfano. */
+    public boolean isReferenced(String reference) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM jobs WHERE input_ref = :ref OR result_ref = :ref)")
+                .param("ref", reference)
+                .query(Boolean.class)
+                .single();
+    }
+
     /** Referencias de resultado de varios trabajos en una sola consulta; los que no tienen no aparecen. */
     public Map<UUID, String> findResultRefs(Collection<UUID> ids) {
         if (ids.isEmpty()) {
