@@ -20,7 +20,15 @@ import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessage;
 import com.queuelab.core.outbox.OutboxEvent;
 import com.queuelab.core.outbox.OutboxRepository;
+import com.queuelab.core.tracing.JobTracing;
 import com.queuelab.worker.metrics.WorkerMetrics;
+
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Scope;
 
 /**
  * Lleva un trabajo por {@code QUEUED → RUNNING → COMPLETED/FAILED}, persistiendo cada paso en PostgreSQL
@@ -49,10 +57,11 @@ public class JobProcessor {
     private final TransactionTemplate transaction;
     private final Clock clock;
     private final WorkerMetrics metrics;
+    private final JobTracing tracing;
 
     JobProcessor(JobRepository jobs, OutboxRepository outbox, JobExecutor executor, RetryPolicy retryPolicy,
             LeasePolicy leasePolicy, ScheduledExecutorService leaseRenewer, PlatformTransactionManager transactions,
-            Clock clock, WorkerMetrics metrics) {
+            Clock clock, WorkerMetrics metrics, JobTracing tracing) {
         this.jobs = jobs;
         this.outbox = outbox;
         this.executor = executor;
@@ -62,6 +71,7 @@ public class JobProcessor {
         this.transaction = new TransactionTemplate(transactions);
         this.clock = clock;
         this.metrics = metrics;
+        this.tracing = tracing;
     }
 
     /** @throws UnknownJobException si el mensaje apunta a un trabajo que no existe */
@@ -85,7 +95,7 @@ public class JobProcessor {
         long startedNanos = System.nanoTime();
         String outcome = WorkerMetrics.OUTCOME_FAILED;
         try {
-            finish(running, running.completed(executor.execute(running), now()));
+            finish(running, running.completed(executeTraced(running), now()));
             outcome = WorkerMetrics.OUTCOME_COMPLETED;
             log.info("Trabajo {} completado (intento {})", running.id(), running.attempts());
         } catch (TransientJobException e) {
@@ -107,6 +117,25 @@ public class JobProcessor {
     }
 
     /**
+     * Ejecuta el trabajo dentro de su propio span ({@code job.execute}), hijo del procesamiento del mensaje: su
+     * duración es la del ejecutor, sin el reclamo ni el guardado del resultado.
+     */
+    private String executeTraced(Job running) {
+        Span span = tracing.startChild("job.execute", SpanKind.INTERNAL, Attributes.of(
+                AttributeKey.stringKey("queuelab.job.id"), running.id().toString(),
+                AttributeKey.stringKey("queuelab.job.type"), running.type(),
+                AttributeKey.longKey("queuelab.job.attempt"), (long) running.attempts()));
+        try (Scope ignored = span.makeCurrent()) {
+            return executor.execute(running);
+        } catch (RuntimeException e) {
+            span.setStatus(StatusCode.ERROR, e.getClass().getSimpleName());
+            throw e;
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
      * Resuelve un trabajo cuyo lease venció: el intento perdido cuenta, así que se aplica la política de
      * reintentos (otro intento con espera, o {@code FAILED} + DLQ si no quedan). La escritura exige que el
      * lease siga vencido, de modo que un trabajo que reanudó su latido no se toca.
@@ -117,10 +146,17 @@ public class JobProcessor {
      */
     public boolean recover(Job abandoned) {
         // No hay petición ni mensaje de por medio: la recuperación abre su propio id de correlación.
-        try (LogContext.Scope ignored = LogContext.with(LogContext.newCorrelationId(), abandoned.id())) {
+        // Tampoco hay traza de la que colgar: abre una propia, y el reintento o aviso a la DLQ que guarde la hereda.
+        Span span = tracing.startChild("job.recover", SpanKind.INTERNAL, Attributes.of(
+                AttributeKey.stringKey("queuelab.job.id"), abandoned.id().toString(),
+                AttributeKey.longKey("queuelab.job.attempt"), (long) abandoned.attempts()));
+        try (LogContext.Scope ignored = LogContext.with(LogContext.newCorrelationId(), abandoned.id());
+                Scope tracingScope = span.makeCurrent()) {
             log.warn("El trabajo {} perdió su lease en el intento {}: se da por abandonado", abandoned.id(),
                     abandoned.attempts());
             return retryOrFail(abandoned, ABANDONED_ERROR, true);
+        } finally {
+            span.end();
         }
     }
 

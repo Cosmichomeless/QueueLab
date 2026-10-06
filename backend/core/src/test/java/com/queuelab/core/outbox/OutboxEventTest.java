@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.queuelab.core.job.Job;
 import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessageCodec;
+import com.queuelab.core.tracing.JobTracing;
 
 class OutboxEventTest {
 
@@ -61,5 +62,24 @@ class OutboxEventTest {
     void aCorrelationIdThatCouldForgeLogLinesIsRefused() {
         assertThatThrownBy(() -> new OutboxEvent(UUID.randomUUID(), UUID.randomUUID(), "JOB_QUEUED", "{}",
                 Instant.now(), null, 0, "a\nb")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void newEventsRecordTheTraceOfTheActiveSpanAndHaveNoneWithoutOne() {
+        Instant now = Instant.parse("2026-03-01T08:00:00Z");
+        Job job = Job.queued(UUID.randomUUID(), "csv-import", now);
+        String traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+        assertThat(OutboxEvent.jobQueued(job, now).traceContext()).isNull();
+        try (var ignored = io.opentelemetry.api.trace.Span.wrap(JobTracing.parse(traceparent)).makeCurrent()) {
+            assertThat(OutboxEvent.jobQueued(job, now).traceContext()).isEqualTo(traceparent);
+            assertThat(OutboxEvent.deadLettered(job, now).traceContext()).isEqualTo(traceparent);
+        }
+    }
+
+    @Test
+    void aTraceContextThatIsNotATraceparentIsRefused() {
+        assertThatThrownBy(() -> new OutboxEvent(UUID.randomUUID(), UUID.randomUUID(), "JOB_QUEUED", "{}",
+                Instant.now(), null, 0, null, "no-es-un-traceparent")).isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -2,6 +2,7 @@ package com.queuelab.core;
 
 import java.nio.file.Path;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,6 +12,9 @@ import com.queuelab.core.job.JobRepository;
 import com.queuelab.core.outbox.OutboxRepository;
 import com.queuelab.core.storage.FileStorage;
 import com.queuelab.core.storage.LocalFileStorage;
+import com.queuelab.core.tracing.JobTracing;
+
+import io.opentelemetry.api.OpenTelemetry;
 
 /**
  * Beans compartidos. Cada proceso que acceda a la base de datos la importa con
@@ -27,6 +31,12 @@ public class QueueLabCoreConfiguration {
     @Bean
     OutboxRepository outboxRepository(JdbcClient jdbcClient) {
         return new OutboxRepository(jdbcClient);
+    }
+
+    /** Spans de los trabajos; sin OpenTelemetry configurado no registran nada. */
+    @Bean
+    JobTracing jobTracing(ObjectProvider<OpenTelemetry> openTelemetry) {
+        return new JobTracing(openTelemetry.getIfAvailable(OpenTelemetry::noop));
     }
 
     /**

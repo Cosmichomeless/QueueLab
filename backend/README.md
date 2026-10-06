@@ -359,6 +359,16 @@ worker  Trabajo 39ae… completado (intento 1)
 Lo comprueba `LoggingEndToEndTest` (e2e con JSON): mismo `correlationId` y `jobId` en API, publicación y worker,
 cabecera inválida sustituida y ningún dato de celda en los logs.
 
+## Trazas (OpenTelemetry)
+
+Una traza une la petición HTTP, la espera y publicación en el outbox y la ejecución en el worker. El contexto
+(`traceparent` del W3C) viaja en `outbox_events.trace_context` (migración V15) y en la cabecera AMQP `traceparent`.
+Spans: `outbox.wait`, `outbox.publish`, `queue.wait`, `job.process`, `job.execute` y `job.recover` (esperas y
+procesamiento con su duración). Se exporta por OTLP/HTTP solo si `QUEUELAB_TRACING_EXPORT_ENABLED=true`
+(`QUEUELAB_TRACING_ENDPOINT`, `QUEUELAB_TRACING_SAMPLING`). Un contexto corrupto o ausente nunca impide publicar ni
+ejecutar un trabajo. Detalle, degradación y limitaciones en [`docs/observability/tracing.md`](../docs/observability/tracing.md).
+Lo comprueba `TracingEndToEndTest` con API y worker como procesos reales.
+
 ## Pruebas del ciclo de vida
 
 `JobLifecycleApiTest` recorre el ciclo completo contra un PostgreSQL real (Testcontainers) cuyo

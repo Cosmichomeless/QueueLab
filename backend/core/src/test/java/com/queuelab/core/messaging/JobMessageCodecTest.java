@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -91,5 +92,35 @@ class JobMessageCodecTest {
         Message hostile = JobMessageCodec.encodeJson("{}", "a b\nc");
         assertThat(hostile.getMessageProperties().getHeaders()).containsKey("x-correlation-id");
         assertThat(JobMessageCodec.correlationIdOf(hostile)).isNull();
+    }
+
+    @Test
+    void traceContextAndDeliveryTimeTravelAsHeadersWithoutChangingTheBody() {
+        String json = JobMessageCodec.toJson(JobMessage.forJob(UUID.randomUUID()));
+        String traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        Instant enqueuedAt = Instant.parse("2026-03-01T08:00:00.123Z");
+
+        Message wire = JobMessageCodec.encodeJson(json, "corr-123", traceparent, enqueuedAt);
+
+        assertThat(JobMessageCodec.traceContextOf(wire).getSpanId()).isEqualTo("b7ad6b7169203331");
+        assertThat(JobMessageCodec.enqueuedAtOf(wire)).isEqualTo(enqueuedAt);
+        assertThat(JobMessageCodec.correlationIdOf(wire)).isEqualTo("corr-123");
+        assertThat(wire.getBody()).isEqualTo(JobMessageCodec.encodeJson(json).getBody());
+    }
+
+    @Test
+    void aMessageWithoutOrWithInvalidTraceHeadersYieldsNull() {
+        Message plain = JobMessageCodec.encode(JobMessage.forJob(UUID.randomUUID()));
+        assertThat(JobMessageCodec.traceContextOf(plain)).isNull();
+        assertThat(JobMessageCodec.enqueuedAtOf(plain)).isNull();
+
+        Message hostile = JobMessageCodec.encodeJson("{}", null, "basura", Instant.EPOCH);
+        assertThat(hostile.getMessageProperties().getHeaders()).containsKey("traceparent");
+        assertThat(JobMessageCodec.traceContextOf(hostile)).isNull();
+        assertThat(JobMessageCodec.enqueuedAtOf(hostile)).isNull();
+
+        Message notANumber = JobMessageCodec.encodeJson("{}");
+        notANumber.getMessageProperties().setHeader("x-queuelab-enqueued-at", "ayer");
+        assertThat(JobMessageCodec.enqueuedAtOf(notANumber)).isNull();
     }
 }

@@ -120,3 +120,10 @@ docker compose down -v                # borra también los volúmenes
 - [`.env.example`](.env.example) y [`frontend/.env.example`](frontend/.env.example): todas las variables explicadas.
 - [`docs/performance/benchmark-results.md`](docs/performance/benchmark-results.md): benchmark de throughput y latencia según el límite de concurrencia del worker (reproducible con `docs/performance/benchmark.py`).
 - [`docs/performance/capacity.md`](docs/performance/capacity.md): capacidad, trade-offs de cada límite (concurrencia, `prefetch`, contrapresión, cuota, outbox, lease) y cómo cambiarlos con seguridad.
+- [`docs/observability/tracing.md`](docs/observability/tracing.md): trazas OpenTelemetry que unen petición HTTP, outbox y worker (spans, configuración, degradación).
+- [`docs/observability/metrics.md`](docs/observability/metrics.md): métricas Prometheus de trabajos y cola (catálogo, endpoints y limitaciones).
+- [`docs/security/upload-api-review.md`](docs/security/upload-api-review.md): revisión de seguridad de la subida de ficheros y la API.
+- [`docs/integration-tests.md`](docs/integration-tests.md): tests de integración con PostgreSQL y RabbitMQ reales (Testcontainers).
+- [`docs/e2e-dashboard.md`](docs/e2e-dashboard.md): pruebas e2e del dashboard con Playwright.
+- [`docs/containers-backend.md`](docs/containers-backend.md) y [`docs/containers-frontend.md`](docs/containers-frontend.md): imágenes de API, worker y dashboard.
+- [`docs/ci-backend.md`](docs/ci-backend.md): CI del backend y el worker en GitHub Actions.

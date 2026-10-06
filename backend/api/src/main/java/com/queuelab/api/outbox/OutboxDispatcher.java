@@ -2,6 +2,7 @@ package com.queuelab.api.outbox;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -22,6 +23,14 @@ import com.queuelab.core.messaging.JobMessageCodec;
 import com.queuelab.core.messaging.JobMessagingTopology;
 import com.queuelab.core.outbox.OutboxEvent;
 import com.queuelab.core.outbox.OutboxRepository;
+import com.queuelab.core.tracing.JobTracing;
+
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
 
 /**
  * Publica en RabbitMQ los eventos pendientes del outbox y solo los marca como publicados cuando el
@@ -43,16 +52,18 @@ public class OutboxDispatcher {
     private final RabbitTemplate rabbit;
     private final TransactionTemplate transaction;
     private final Clock clock;
+    private final JobTracing tracing;
     private final int batchSize;
     private final Duration confirmTimeout;
 
     OutboxDispatcher(OutboxRepository outbox, RabbitTemplate rabbit, PlatformTransactionManager transactions,
-            Clock clock, @Value("${queuelab.outbox.batch-size:50}") int batchSize,
+            Clock clock, JobTracing tracing, @Value("${queuelab.outbox.batch-size:50}") int batchSize,
             @Value("${queuelab.outbox.confirm-timeout:5s}") Duration confirmTimeout) {
         this.outbox = outbox;
         this.rabbit = rabbit;
         this.transaction = new TransactionTemplate(transactions);
         this.clock = clock;
+        this.tracing = tracing;
         this.batchSize = batchSize;
         this.confirmTimeout = confirmTimeout;
     }
@@ -98,30 +109,65 @@ public class OutboxDispatcher {
         try {
             route = JobMessagingTopology.routeFor(event.eventType());
         } catch (IllegalArgumentException e) {
-            return fail(event, Outcome.REJECTED, e.getMessage());
+            return fail(null, event, Outcome.REJECTED, e.getMessage());
         }
+
+        // La traza de la petición (o del intento del worker) que guardó el evento continúa aquí: primero la espera
+        // en el outbox, de que se guardó a que se intenta publicar, y después la publicación en sí.
+        Instant dispatchStart = clock.instant();
+        SpanContext parent = JobTracing.parse(event.traceContext());
+        Attributes attributes = Attributes.of(
+                AttributeKey.stringKey("queuelab.job.id"), event.jobId().toString(),
+                AttributeKey.stringKey("queuelab.outbox.event_type"), event.eventType());
+        SpanContext publishParent = parent;
+        if (event.attempts() == 0) {
+            // Solo la primera pasada: en las siguientes el evento ya esperó y lo que se ve son los fallos.
+            Span wait = tracing.start("outbox.wait", SpanKind.INTERNAL, parent, event.createdAt(), attributes);
+            wait.end(dispatchStart);
+            if (publishParent == null) {
+                publishParent = wait.getSpanContext();
+            }
+        }
+        Span publishSpan = tracing.start("outbox.publish", SpanKind.PRODUCER, publishParent, dispatchStart,
+                attributes.toBuilder()
+                        .put("messaging.system", "rabbitmq")
+                        .put("messaging.destination.name", route.exchange())
+                        .put("messaging.rabbitmq.destination.routing_key", route.routingKey())
+                        .put("queuelab.outbox.attempt", event.attempts() + 1)
+                        .build());
         try {
-            rabbit.send(route.exchange(), route.routingKey(), JobMessageCodec.encodeJson(event.payload(), LogContext.correlationId()),
+            // El mensaje lleva el span de publicación como padre: la espera en la cola y el procesamiento del
+            // worker cuelgan de él. La hora de entrega al broker permite medir esa espera.
+            Instant sentAt = clock.instant();
+            rabbit.send(route.exchange(), route.routingKey(),
+                    JobMessageCodec.encodeJson(event.payload(), LogContext.correlationId(),
+                            JobTracing.format(publishSpan.getSpanContext()), sentAt),
                     correlation);
             CorrelationData.Confirm confirm = correlation.getFuture().get(confirmTimeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!confirm.isAck()) {
-                return fail(event, Outcome.REJECTED, "El broker rechazó el mensaje (nack): " + confirm.getReason());
+                return fail(publishSpan, event, Outcome.REJECTED, "El broker rechazó el mensaje (nack): " + confirm.getReason());
             }
             if (correlation.getReturned() != null) {
-                return fail(event, Outcome.REJECTED, "El broker no encontró cola para el mensaje");
+                return fail(publishSpan, event, Outcome.REJECTED, "El broker no encontró cola para el mensaje");
             }
             return Outcome.CONFIRMED;
         } catch (TimeoutException e) {
-            return fail(event, Outcome.BROKER_UNAVAILABLE, "Sin confirmación del broker en " + confirmTimeout);
+            return fail(publishSpan, event, Outcome.BROKER_UNAVAILABLE, "Sin confirmación del broker en " + confirmTimeout);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return fail(event, Outcome.BROKER_UNAVAILABLE, "Interrumpido esperando la confirmación");
+            return fail(publishSpan, event, Outcome.BROKER_UNAVAILABLE, "Interrumpido esperando la confirmación");
         } catch (ExecutionException | AmqpException e) {
-            return fail(event, Outcome.BROKER_UNAVAILABLE, "RabbitMQ no disponible: " + e.getClass().getSimpleName());
+            return fail(publishSpan, event, Outcome.BROKER_UNAVAILABLE, "RabbitMQ no disponible: " + e.getClass().getSimpleName());
+        } finally {
+            // fail() ya lo dejó en error si el evento sigue pendiente.
+            publishSpan.end();
         }
     }
 
-    private Outcome fail(OutboxEvent event, Outcome outcome, String error) {
+    private Outcome fail(Span span, OutboxEvent event, Outcome outcome, String error) {
+        if (span != null) {
+            span.setStatus(StatusCode.ERROR, error);
+        }
         log.warn("Evento {} (trabajo {}) sigue pendiente, intento {}: {}", event.id(), event.jobId(),
                 event.attempts() + 1, error);
         outbox.recordFailure(event.id(), error);

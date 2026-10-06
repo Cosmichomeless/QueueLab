@@ -1,5 +1,6 @@
 package com.queuelab.core.messaging;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.amqp.core.Message;
@@ -9,7 +10,9 @@ import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
 
 import com.queuelab.core.logging.LogContext;
+import com.queuelab.core.tracing.JobTracing;
 
+import io.opentelemetry.api.trace.SpanContext;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -63,12 +66,28 @@ public final class JobMessageCodec {
      * del cuerpo no cambia y un mensaje sin cabecera sigue siendo válido.
      */
     public static Message encodeJson(String body, String correlationId) {
+        return encodeJson(body, correlationId, null, null);
+    }
+
+    /**
+     * Como {@link #encodeJson(String, String)}, con el contexto de la traza ({@link JobTracing#AMQP_HEADER}, W3C
+     * {@code traceparent}) y el instante en que el mensaje se entregó al broker
+     * ({@link JobTracing#ENQUEUED_AT_HEADER}, ms desde epoch): con ellos el worker continúa la misma traza y
+     * mide la espera en la cola. Ambos son opcionales y solo metadatos.
+     */
+    public static Message encodeJson(String body, String correlationId, String traceparent, Instant enqueuedAt) {
         MessageBuilderSupport<Message> builder = MessageBuilder.withBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .setContentEncoding("UTF-8")
                 .setDeliveryMode(MessageDeliveryMode.PERSISTENT);
         if (correlationId != null) {
             builder.setHeader(LogContext.AMQP_HEADER, correlationId);
+        }
+        if (traceparent != null) {
+            builder.setHeader(JobTracing.AMQP_HEADER, traceparent);
+        }
+        if (enqueuedAt != null) {
+            builder.setHeader(JobTracing.ENQUEUED_AT_HEADER, enqueuedAt.toEpochMilli());
         }
         return builder.build();
     }
@@ -77,6 +96,18 @@ public final class JobMessageCodec {
     public static String correlationIdOf(Message message) {
         Object value = message.getMessageProperties().getHeader(LogContext.AMQP_HEADER);
         return value instanceof String id && LogContext.isValid(id) ? id : null;
+    }
+
+    /** El contexto de traza de la cabecera del mensaje, o {@code null} si falta o no es un {@code traceparent} válido. */
+    public static SpanContext traceContextOf(Message message) {
+        Object value = message.getMessageProperties().getHeader(JobTracing.AMQP_HEADER);
+        return value instanceof String traceparent ? JobTracing.parse(traceparent) : null;
+    }
+
+    /** El instante en que el despachador entregó el mensaje al broker, o {@code null} si falta o no es válido. */
+    public static Instant enqueuedAtOf(Message message) {
+        Object value = message.getMessageProperties().getHeader(JobTracing.ENQUEUED_AT_HEADER);
+        return value instanceof Number millis && millis.longValue() > 0 ? Instant.ofEpochMilli(millis.longValue()) : null;
     }
 
     /**

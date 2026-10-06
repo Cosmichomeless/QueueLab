@@ -10,6 +10,8 @@ import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 
+import com.queuelab.core.tracing.JobTracing;
+
 /**
  * Acceso a la tabla {@code outbox_events}. {@link #insert} debe llamarse dentro de la misma
  * transacción que guarda el trabajo para que ambos se confirmen o se deshagan juntos.
@@ -37,11 +39,12 @@ public class OutboxRepository {
     public void insert(OutboxEvent event, Instant availableAt) {
         jdbc.sql("""
                 INSERT INTO outbox_events (id, job_id, event_type, payload, created_at, published_at, attempts,
-                                           available_at, correlation_id)
+                                           available_at, correlation_id, trace_context)
                 VALUES (:id, :jobId, :eventType, CAST(:payload AS jsonb), :createdAt, :publishedAt, :attempts,
-                        :availableAt, :correlationId)
+                        :availableAt, :correlationId, :traceContext)
                 """)
                 .param("correlationId", event.correlationId())
+                .param("traceContext", event.traceContext())
                 .param("availableAt", availableAt == null ? null : availableAt.atOffset(ZoneOffset.UTC))
                 .param("id", event.id())
                 .param("jobId", event.jobId())
@@ -61,7 +64,7 @@ public class OutboxRepository {
      */
     public List<OutboxEvent> findPending(int limit) {
         return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts, "
-                        + "correlation_id "
+                        + "correlation_id, trace_context "
                         + "FROM outbox_events WHERE published_at IS NULL "
                         + "AND (available_at IS NULL OR available_at <= now()) ORDER BY created_at, id "
                         + "LIMIT :limit FOR UPDATE SKIP LOCKED")
@@ -109,7 +112,7 @@ public class OutboxRepository {
 
     public List<OutboxEvent> findByJobId(UUID jobId) {
         return jdbc.sql("SELECT id, job_id, event_type, payload::text AS payload, created_at, published_at, attempts, "
-                        + "correlation_id "
+                        + "correlation_id, trace_context "
                         + "FROM outbox_events WHERE job_id = :jobId ORDER BY created_at, id")
                 .param("jobId", jobId)
                 .query(OutboxRepository::map)
@@ -126,6 +129,12 @@ public class OutboxRepository {
                 rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 published == null ? null : published.toInstant(),
                 rs.getInt("attempts"),
-                rs.getString("correlation_id"));
+                rs.getString("correlation_id"),
+                validTraceContext(rs.getString("trace_context")));
+    }
+
+    /** Un contexto de traza corrupto se descarta: perder el enlace con la traza no debe impedir publicar el evento. */
+    private static String validTraceContext(String stored) {
+        return JobTracing.parse(stored) == null ? null : stored;
     }
 }

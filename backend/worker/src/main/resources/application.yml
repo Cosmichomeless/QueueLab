@@ -34,6 +34,30 @@ management:
     tags:
       # Distingue la serie de cada proceso cuando Prometheus recoge API y worker a la vez.
       application: ${spring.application.name}
+  tracing:
+    # Se traza el 100 % por defecto (el 10 % de Boot dejaría trazas a medias al depurar un trabajo); en producción
+    # con mucho tráfico baja QUEUELAB_TRACING_SAMPLING. El muestreo respeta al padre: una traza se guarda entera
+    # o no se guarda. Ver docs/observability/tracing.md.
+    sampling:
+      probability: ${QUEUELAB_TRACING_SAMPLING:1.0}
+    export:
+      otlp:
+        # Exportar las trazas es opcional: sin un colector escuchando solo produciría errores de conexión.
+        enabled: ${QUEUELAB_TRACING_EXPORT_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${QUEUELAB_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  # Solo se exportan trazas: las métricas van por Prometheus (pull) y los logs por la salida estándar.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
 
 queuelab:
   metrics:
