@@ -112,6 +112,7 @@ las métricas medidas con el script reproducible `docs/performance/benchmark.py`
 con CSV de 8,6 MiB: `queuelab.worker.concurrency` de 1 a 8 sube el throughput de 8,3 a 40,2 trabajos/s (4,8×); de 8 a
 16 no sube y **duplica la latencia por trabajo** (133 → 272 ms). Para trabajos muy cortos el techo es el outbox
 (≈ 49 eventos/s por defecto), no el worker.
+Cómo elegir y cambiar los límites con seguridad: [`docs/performance/capacity.md`](../docs/performance/capacity.md).
 
 ## Modelo de trabajos (`core`)
 

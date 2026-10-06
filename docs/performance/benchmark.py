@@ -17,6 +17,7 @@ Java 25 en el PATH (o JAVA_HOME) y python3. Solo usa la biblioteca estándar.
 Uso:
   python3 docs/performance/benchmark.py [--scenario csv|noop|submit] [--jobs 100] [--rows 100000]
                                         [--concurrency 1,2,4,8,16] [--repeat 3] [--output results.json]
+                                        [--api-env CLAVE=VALOR ...] [--worker-env CLAVE=VALOR ...]
 """
 import argparse
 import json
@@ -191,6 +192,10 @@ def main():
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--submit-clients", type=int, default=8)
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--api-env", action="append", default=[], metavar="CLAVE=VALOR",
+                        help="variable de entorno extra para la API (p. ej. QUEUELAB_OUTBOX_BATCH_SIZE=200)")
+    parser.add_argument("--worker-env", action="append", default=[], metavar="CLAVE=VALOR",
+                        help="variable de entorno extra para el worker (p. ej. QUEUELAB_WORKER_PREFETCH=5)")
     parser.add_argument("--output")
     args = parser.parse_args()
     levels = [int(v) for v in args.concurrency.split(",")]
@@ -221,6 +226,8 @@ def main():
                "QUEUELAB_RATE_LIMIT_ENABLED": "false",
                "QUEUELAB_BACKPRESSURE_MAX_PENDING": str(args.jobs * 10)}
     worker_env = {**common, "SPRING_PROFILES_ACTIVE": "local", "SERVER_PORT": str(WORKER_PORT)}
+    api_env.update(item.split("=", 1) for item in args.api_env)
+    worker_env.update(item.split("=", 1) for item in args.worker_env)
     api = Process("api", API_JAR, api_env, logs)
     runs = []
     try:

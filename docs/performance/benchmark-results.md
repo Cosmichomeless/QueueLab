@@ -74,6 +74,19 @@ superior del sistema para trabajos muy cortos.
 | **Aceptar envíos (API)** | `noop`: ≈ 2.000 /s, p95 5,5 ms · `csv-import` (8,6 MiB): ≈ 65 /s, p50 ≈ 120 ms, p95 ≈ 150 ms | Con 8 clientes en paralelo; el CSV está limitado por copiar el fichero al almacenamiento. Medido con el límite de envíos desactivado: con él activo, la cuota por IP (60/min por defecto) es el límite real de un cliente. |
 | **Coste de los índices de V13** | +1,0 µs por inserción, +1,3 µs al reclamar, +3,2 µs al completar, ≈ 0 al liberar (ver abajo) | Despreciable frente a los ≈ 115 ms por trabajo CSV. |
 
+### Efecto de cambiar el outbox (`noop`, 1.000 trabajos, concurrencia 8, mediana de 3)
+
+Opciones `--api-env QUEUELAB_OUTBOX_BATCH_SIZE=… --api-env QUEUELAB_OUTBOX_DISPATCH_INTERVAL=…` del script:
+
+| `batch-size` / `dispatch.interval` | Publicar 1.000 eventos | Ritmo del outbox | Fallidos |
+| --- | ---: | ---: | ---: |
+| 50 / 1 s (por defecto) | 20,5 s | 48,7 /s | 0 |
+| 200 / 1 s | 5,7 s | 175,5 /s | 0 |
+| 200 / 100 ms | 1,8 s | 542,7 /s | 0 |
+
+El ritmo no es `batch-size / intervalo` exacto porque cada pasada tarda además lo que cuesta publicar y confirmar
+los mensajes. Con 200 / 100 ms el outbox ya deja de ser el límite para los `noop` (el worker ronda 2.000 /s).
+
 ### Coste en escritura de los índices de V13 (deuda de la #41)
 
 [`write-cost.sql`](write-cost.sql) simula el ciclo de vida de 200.000 trabajos CSV sobre dos tablas temporales
@@ -97,7 +110,7 @@ limpieza** y por fichero huérfano (ver [`query-plans.md`](query-plans.md)).
 2. **El valor óptimo es el número de recursos reales, no «cuanto más mejor»**: el codo (aquí 8 con 12 núcleos
    compartidos) debe medirse en el hardware de destino con este mismo script.
 3. **Para trabajos muy cortos manda el outbox (≈ 49 /s por instancia de API)**, no el worker. Si hiciera falta más,
-   hay que subir `batch-size` o reducir `dispatch.interval` (el efecto de cambiarlos no se ha medido aún).
+   hay que subir `batch-size` o reducir `dispatch.interval` (medido arriba: 49 → 543 /s). Guía de uso: [Capacidad y trade-offs](capacity.md).
 
 ## Cómo reproducirlo
 
