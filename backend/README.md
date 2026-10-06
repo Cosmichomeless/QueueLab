@@ -60,6 +60,8 @@ Ambos procesos leen las URLs y credenciales de variables de entorno
 | `QUEUELAB_RABBITMQ_PASSWORD` | _(vacío)_ | Contraseña de RabbitMQ |
 | `QUEUELAB_STORAGE_DIRECTORY` | `./data/storage` | Directorio del almacenamiento de ficheros (API y worker deben compartirlo; ver [Almacenamiento](#almacenamiento-de-ficheros)) |
 | `QUEUELAB_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Solo la API. Orígenes del dashboard que pueden llamarla desde el navegador (CORS, solo en `/api/**`, métodos `GET` y `POST`), separados por comas; vacío desactiva CORS. Cualquier otro origen recibe 403. |
+| `QUEUELAB_BACKPRESSURE_MAX_PENDING` | `1000` | Solo la API. Umbral de contrapresión: con tantos trabajos esperando worker los envíos nuevos reciben `503` (ver [Contrapresión](#contrapresión-cola-saturada)). |
+| `QUEUELAB_BACKPRESSURE_RETRY_AFTER` | `30s` | Solo la API. Espera sugerida (`Retry-After`) a los envíos rechazados por saturación; mínimo 1 s. |
 
 ### Perfiles y ficheros de ejemplo
 
@@ -119,6 +121,7 @@ procesos no se pisen.
 | `GET /api/v1/jobs` | Listado paginado, del más reciente al más antiguo. |
 | `POST /api/v1/jobs/{id}/retry` | Reintento manual de un trabajo `FAILED` (ver «Reintento manual»). 202 con el trabajo en `QUEUED`; 409 si no es elegible. |
 | `GET /api/v1/jobs/{id}/retries` | Historial de reintentos manuales, del más antiguo al más reciente. |
+| `GET /api/v1/queue` | Saturación de la cola: `pending`, `maxPending`, `saturated`, `retryAfterSeconds` (ver «Contrapresión»). |
 
 Los errores usan `application/problem+json` (RFC 9457) con `status`, `title`, `detail` e `instance`.
 
@@ -139,6 +142,7 @@ debe ser uno de los tipos conocidos, que se configuran en `queuelab.jobs.types` 
 | `Idempotency-Key` vacía, de más de 255 caracteres o con espacios/no ASCII | 400 indicando la cabecera |
 | `Idempotency-Key` ya usada con otra carga | 409 «Conflicto de idempotencia» |
 | Trabajo inexistente | 404 «Trabajo no encontrado» |
+| Cola saturada (`POST /jobs`, `POST /jobs/csv`, `POST /jobs/{id}/retry`) | 503 «Cola saturada» con `Retry-After` (ver «Contrapresión») |
 | Fallo no previsto | 500 «Error interno» genérico; la traza solo se escribe en el log |
 
 ### Listado paginado
@@ -217,6 +221,43 @@ respuesta de `GET /api/v1/jobs/{id}`, del listado y de los envíos idempotentes 
 - `GET /api/v1/jobs/{id}/result` envía el fichero en streaming con `Content-Type`, `Content-Length` y
   `Content-Disposition: attachment`. Errores `application/problem+json`: `404` si el trabajo no existe o
   terminó sin fichero («Resultado no encontrado»); `409` si aún no terminó o falló («Resultado no disponible»).
+
+### Contrapresión (cola saturada)
+
+Sin límite, una avalancha de envíos llena la cola más rápido de lo que los workers la vacían: cada trabajo nuevo
+espera más y la latencia crece sin tope. La API se protege rechazando trabajo nuevo cuando ya hay demasiado esperando.
+
+- **Medida de saturación**: trabajos **pendientes** = los que están en `QUEUED` o `RETRYING` (aceptados y todavía sin
+  worker). Los `RUNNING` no cuentan porque ya tienen capacidad asignada, y los terminados tampoco.
+- **Umbral**: `queuelab.backpressure.max-pending` (por defecto **1000**; mínimo 1). Con `pending >= max-pending`
+  la cola está saturada.
+- **Respuesta**: `503 Service Unavailable` con `Retry-After: <segundos>` (`queuelab.backpressure.retry-after`,
+  por defecto 30 s) y un `application/problem+json` con la medida que disparó el rechazo:
+
+  ```json
+  {"title":"Cola saturada","status":503,"detail":"La cola está saturada (3 trabajos pendientes de un máximo de 3). Inténtalo de nuevo en 12 s.",
+   "pending":3,"maxPending":3,"retryAfterSeconds":12}
+  ```
+
+  Se usa 503 y no 429 porque el límite es de capacidad del sistema, no de un cliente concreto (la cuota por cliente
+  llega con #42).
+- **Qué se comprueba**: lo que encola trabajo nuevo: `POST /api/v1/jobs`, `POST /api/v1/jobs/csv` (antes de guardar
+  el fichero, para no gastar disco en lo que se va a rechazar) y `POST /api/v1/jobs/{id}/retry`. Repetir una
+  `Idempotency-Key` ya aceptada no añade carga y sigue respondiendo `200`. Las lecturas nunca se rechazan.
+  Un rechazo no guarda nada: ni trabajo, ni evento de outbox, ni fichero.
+- **Medirlo**: `GET /api/v1/queue` devuelve `{"pending":2,"maxPending":3,"saturated":false,"retryAfterSeconds":7}`.
+  `pending` se cuenta solo hasta `max-pending` (consulta acotada con `LIMIT`, su coste no crece con la cola), así
+  que nunca lo supera.
+- **Es un umbral blando**: con envíos simultáneos justo en el límite pueden colarse unos pocos trabajos de más. Es
+  deliberado: serializar los envíos para evitarlo costaría más que lo que protege.
+- **Cómo elegir el valor**: el umbral es `capacidad × espera tolerable`. Con `N` workers de concurrencia `c` y un
+  trabajo de `t` segundos, la cola se vacía a `N·c/t` trabajos por segundo; un `max-pending` de `W·N·c/t` acota la espera
+  en cola a `W` segundos. Ejemplo: 2 workers × 2 consumidores, trabajos de 5 s → 0,8 trabajos/s; para esperar como
+  mucho 5 min (300 s) el umbral sería ≈ 240.
+- Un cliente bien portado respeta `Retry-After` y reintenta; el dashboard muestra el error de la API tal cual.
+- `BackpressureTest` cubren: bajo umbral, en el umbral (503, cabecera y cuerpo, nada guardado),
+  qué estados cuentan, CSV sin fichero huérfano, idempotencia, reintento manual, el endpoint y la validación de la
+  configuración.
 
 ## Pruebas del ciclo de vida
 

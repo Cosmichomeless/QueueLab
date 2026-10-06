@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.queuelab.api.queue.QueueBackpressure;
 import com.queuelab.core.job.Job;
 import com.queuelab.core.job.JobCursor;
 import com.queuelab.core.job.JobRepository;
@@ -31,9 +32,11 @@ public class JobService {
     private final OutboxRepository outbox;
     private final JobTypeValidator typeValidator;
     private final FileStorage storage;
+    private final QueueBackpressure backpressure;
 
     public JobService(JobRepository jobs, OutboxRepository outbox, Clock clock, JobTypeValidator typeValidator,
-            FileStorage storage) {
+            FileStorage storage, QueueBackpressure backpressure) {
+        this.backpressure = backpressure;
         this.storage = storage;
         this.jobs = jobs;
         this.outbox = outbox;
@@ -132,6 +135,7 @@ public class JobService {
     public Submission submit(String type, String idempotencyKey) {
         typeValidator.validate(type);
         if (idempotencyKey == null) {
+            backpressure.ensureCapacity();
             return new Submission(create(type), true);
         }
         IdempotencyKey.validate(idempotencyKey);
@@ -141,6 +145,8 @@ public class JobService {
         if (existing.isPresent()) {
             return replay(existing.get(), fingerprint);
         }
+        // Solo lo que de verdad encola se rechaza por saturación: repetir una clave ya aceptada no añade carga.
+        backpressure.ensureCapacity();
         // PostgreSQL guarda microsegundos: así lo devuelto coincide con lo almacenado.
         Job job = Job.queued(UUID.randomUUID(), type, clock.instant().truncatedTo(ChronoUnit.MICROS));
         if (jobs.insertIfKeyAbsent(job, idempotencyKey, fingerprint)) {
@@ -163,6 +169,7 @@ public class JobService {
         if (failed.status() != JobStatus.FAILED) {
             throw new JobNotRetryableException(id, failed.status());
         }
+        backpressure.ensureCapacity();
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Job requeued = failed.requeued(now);
         if (!jobs.requeueFailed(requeued, failed.attempts())) {

@@ -25,6 +25,7 @@ import com.queuelab.api.job.ResultNotFoundException;
 import com.queuelab.api.job.ResultNotReadyException;
 import com.queuelab.api.job.UnsupportedUploadTypeException;
 import com.queuelab.api.job.UploadTooLargeException;
+import com.queuelab.api.queue.QueueSaturatedException;
 
 /**
  * Formato único de errores de la API: {@code application/problem+json} (RFC 9457).
@@ -86,6 +87,24 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ex.getMessage());
         problem.setTitle("Tipo de fichero no admitido");
         return problem;
+    }
+
+    /**
+     * Contrapresión: {@code 503} con {@code Retry-After} y, en el cuerpo, la medida que disparó el rechazo para
+     * que el cliente (o un benchmark) pueda ver cuánto falta para volver a entrar.
+     */
+    @ExceptionHandler(QueueSaturatedException.class)
+    ResponseEntity<ProblemDetail> queueSaturated(QueueSaturatedException ex) {
+        var status = ex.status();
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
+        problem.setTitle("Cola saturada");
+        problem.setProperty("pending", status.pending());
+        problem.setProperty("maxPending", status.maxPending());
+        problem.setProperty("retryAfterSeconds", status.retryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(status.retryAfterSeconds()))
+                .contentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
     }
 
     /** El contenedor corta la subida al superar el límite de multipart, antes de que llegue al servicio. */

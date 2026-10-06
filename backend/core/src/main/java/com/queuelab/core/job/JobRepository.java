@@ -216,6 +216,19 @@ public class JobRepository {
     }
 
     /**
+     * Trabajos esperando a un worker ({@code QUEUED} o {@code RETRYING}), contados hasta {@code cap}: basta saber
+     * si se alcanzó un umbral, así que la consulta se detiene ahí y su coste no crece con la cola.
+     */
+    public long countWaiting(int cap) {
+        return jdbc.sql("""
+                SELECT count(*) FROM (
+                    SELECT 1 FROM jobs WHERE status IN ('QUEUED', 'RETRYING') LIMIT :cap
+                ) waiting""")
+                .param("cap", cap)
+                .query(Long.class).single();
+    }
+
+    /**
      * Guarda el nuevo estado solo si en base de datos sigue en {@code expectedStatus}
      * (control optimista: evita que dos procesos se pisen).
      *

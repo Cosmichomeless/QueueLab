@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.queuelab.api.queue.QueueBackpressure;
 import com.queuelab.core.job.Job;
 import com.queuelab.core.job.JobRepository;
 import com.queuelab.core.outbox.OutboxEvent;
@@ -55,10 +56,12 @@ public class CsvUploadService {
     private final TransactionTemplate transaction;
     private final Clock clock;
     private final long maxBytes;
+    private final QueueBackpressure backpressure;
 
     public CsvUploadService(FileStorage storage, JobRepository jobs, OutboxRepository outbox,
             TransactionTemplate transaction, Clock clock,
-            @Value("${queuelab.csv.max-file-size:10MB}") DataSize maxFileSize) {
+            @Value("${queuelab.csv.max-file-size:10MB}") DataSize maxFileSize, QueueBackpressure backpressure) {
+        this.backpressure = backpressure;
         this.storage = storage;
         this.jobs = jobs;
         this.outbox = outbox;
@@ -69,6 +72,8 @@ public class CsvUploadService {
 
     public Job upload(MultipartFile file) {
         validate(file);
+        // Antes de guardar el fichero: una cola saturada no debe gastar disco en lo que va a rechazar.
+        backpressure.ensureCapacity();
 
         UUID id = UUID.randomUUID();
         StoredFile stored;

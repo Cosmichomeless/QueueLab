@@ -34,6 +34,12 @@ queuelab:
     batch-size: 50
     confirm-timeout: 5s
 
+  backpressure:
+    # Contrapresión: con tantos trabajos esperando worker (QUEUED o RETRYING) los envíos nuevos se rechazan con 503
+    # y Retry-After en lugar de dejar crecer la cola. Ver backend/README.md, «Contrapresión».
+    max-pending: ${QUEUELAB_BACKPRESSURE_MAX_PENDING:1000}
+    retry-after: ${QUEUELAB_BACKPRESSURE_RETRY_AFTER:30s}
+
   cors:
     # Orígenes del dashboard que pueden llamar a la API desde el navegador (separados por comas; vacío = ninguno).
     allowed-origins: ${QUEUELAB_CORS_ALLOWED_ORIGINS:http://localhost:3000}
