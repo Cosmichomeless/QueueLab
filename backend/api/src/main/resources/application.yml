@@ -56,6 +56,12 @@ queuelab:
     max-requests: ${QUEUELAB_RATE_LIMIT_MAX_REQUESTS:60}
     window: ${QUEUELAB_RATE_LIMIT_WINDOW:1m}
 
+  metrics:
+    refresh:
+      # Cada cuánto se relee el estado de la cola para los gauges (los scrapes solo leen la foto en memoria).
+      enabled: true
+      interval: ${QUEUELAB_METRICS_REFRESH_INTERVAL:15s}
+
   cors:
     # Orígenes del dashboard que pueden llamar a la API desde el navegador (separados por comas; vacío = ninguno).
     allowed-origins: ${QUEUELAB_CORS_ALLOWED_ORIGINS:http://localhost:3000}
@@ -66,6 +72,10 @@ queuelab:
     max-file-size: 10MB
 
 management:
+  metrics:
+    tags:
+      # Distingue la serie de cada proceso cuando Prometheus recoge API y worker a la vez.
+      application: ${spring.application.name}
   health:
     rabbit:
       # La API acepta trabajos aunque RabbitMQ esté caído (el outbox los conserva): no afecta a su salud.
@@ -76,7 +86,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: formato de texto de Prometheus en /actuator/prometheus (ver docs/observability/metrics.md).
+        include: health,info,prometheus
   endpoint:
     health:
       probes:

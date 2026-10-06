@@ -20,6 +20,7 @@ import com.queuelab.core.logging.LogContext;
 import com.queuelab.core.messaging.JobMessage;
 import com.queuelab.core.outbox.OutboxEvent;
 import com.queuelab.core.outbox.OutboxRepository;
+import com.queuelab.worker.metrics.WorkerMetrics;
 
 /**
  * Lleva un trabajo por {@code QUEUED → RUNNING → COMPLETED/FAILED}, persistiendo cada paso en PostgreSQL
@@ -47,10 +48,11 @@ public class JobProcessor {
     private final ScheduledExecutorService leaseRenewer;
     private final TransactionTemplate transaction;
     private final Clock clock;
+    private final WorkerMetrics metrics;
 
     JobProcessor(JobRepository jobs, OutboxRepository outbox, JobExecutor executor, RetryPolicy retryPolicy,
             LeasePolicy leasePolicy, ScheduledExecutorService leaseRenewer, PlatformTransactionManager transactions,
-            Clock clock) {
+            Clock clock, WorkerMetrics metrics) {
         this.jobs = jobs;
         this.outbox = outbox;
         this.executor = executor;
@@ -59,6 +61,7 @@ public class JobProcessor {
         this.leaseRenewer = leaseRenewer;
         this.transaction = new TransactionTemplate(transactions);
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     /** @throws UnknownJobException si el mensaje apunta a un trabajo que no existe */
@@ -74,13 +77,22 @@ public class JobProcessor {
         }
 
         log.info("Trabajo {} en ejecución (tipo {}, intento {})", running.id(), running.type(), running.attempts());
+        if (running.attempts() == 1) {
+            // Solo el primer intento: en los reintentos la espera es la del backoff, no una señal de saturación.
+            metrics.waited(running.type(), Duration.between(running.createdAt(), claimedAt));
+        }
         ScheduledFuture<?> heartbeat = startHeartbeat(running);
+        long startedNanos = System.nanoTime();
+        String outcome = WorkerMetrics.OUTCOME_FAILED;
         try {
             finish(running, running.completed(executor.execute(running), now()));
+            outcome = WorkerMetrics.OUTCOME_COMPLETED;
             log.info("Trabajo {} completado (intento {})", running.id(), running.attempts());
         } catch (TransientJobException e) {
             log.warn("El trabajo {} falló de forma transitoria (intento {}): {}", running.id(), running.attempts(),
                     e.getMessage());
+            outcome = retryPolicy.hasAttemptsLeft(running.attempts())
+                    ? WorkerMetrics.OUTCOME_RETRY : WorkerMetrics.OUTCOME_DEAD_LETTER;
             retryOrFail(running, e.getMessage(), false);
         } catch (JobExecutionException e) {
             log.warn("El trabajo {} falló (intento {}): {}", running.id(), running.attempts(), e.getMessage());
@@ -90,6 +102,7 @@ public class JobProcessor {
             finish(running, running.failed(UNEXPECTED_ERROR, now()));
         } finally {
             heartbeat.cancel(false);
+            metrics.executionFinished(running.type(), outcome, Duration.ofNanos(System.nanoTime() - startedNanos));
         }
     }
 
@@ -152,6 +165,8 @@ public class JobProcessor {
             return true;
         });
         if (Boolean.TRUE.equals(scheduled)) {
+            metrics.retryScheduled(running.type(),
+                    expiredLease ? WorkerMetrics.CAUSE_LEASE_EXPIRED : WorkerMetrics.CAUSE_TRANSIENT);
             log.info("El trabajo {} se reintentará en {} (intento {} de {})", running.id(), delay,
                     running.attempts() + 1, retryPolicy.maxAttempts());
             return true;
@@ -184,6 +199,8 @@ public class JobProcessor {
                     running.id(), running.attempts());
             return false;
         }
+        metrics.deadLettered(running.type(),
+                expiredLease ? WorkerMetrics.CAUSE_LEASE_EXPIRED : WorkerMetrics.CAUSE_TRANSIENT);
         return true;
     }
 

@@ -12,6 +12,7 @@ import com.queuelab.core.messaging.JobMessage;
 import com.queuelab.core.messaging.JobMessageCodec;
 import com.queuelab.core.messaging.JobMessagingTopology;
 import com.queuelab.core.messaging.MalformedJobMessageException;
+import com.queuelab.worker.metrics.WorkerMetrics;
 
 /**
  * Consume {@code queuelab.jobs.queued}. Un mensaje malformado o que apunta a un trabajo inexistente se
@@ -23,9 +24,11 @@ class JobConsumer {
     private static final Logger log = LoggerFactory.getLogger(JobConsumer.class);
 
     private final JobProcessor processor;
+    private final WorkerMetrics metrics;
 
-    JobConsumer(JobProcessor processor) {
+    JobConsumer(JobProcessor processor, WorkerMetrics metrics) {
         this.processor = processor;
+        this.metrics = metrics;
     }
 
     @RabbitListener(queues = JobMessagingTopology.QUEUE)
@@ -41,12 +44,14 @@ class JobConsumer {
             try {
                 job = JobMessageCodec.decode(message);
             } catch (MalformedJobMessageException e) {
+                metrics.messageRejected(WorkerMetrics.REASON_MALFORMED);
                 log.warn("Mensaje malformado enviado a la cola dead-letter: {}", e.getMessage());
                 throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
             }
             try (LogContext.Scope jobScope = LogContext.with(null, job.jobId())) {
                 processor.process(job);
             } catch (UnknownJobException e) {
+                metrics.messageRejected(WorkerMetrics.REASON_UNKNOWN_JOB);
                 log.warn("Mensaje enviado a la cola dead-letter: {}", e.getMessage());
                 throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
             }

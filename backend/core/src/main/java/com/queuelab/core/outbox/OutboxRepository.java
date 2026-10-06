@@ -70,6 +70,26 @@ public class OutboxRepository {
                 .list();
     }
 
+    /** Eventos sin publicar y ya disponibles, y desde cuándo espera el más antiguo ({@code null} si no hay). */
+    public record PendingStats(long count, Instant oldestCreatedAt) {
+    }
+
+    /**
+     * Cuántos eventos están listos para publicarse y cuánto lleva esperando el más antiguo: si crece, el
+     * despachador no da abasto o RabbitMQ no confirma. Se sirve del índice parcial
+     * {@code outbox_events_pending_idx}, que solo contiene lo pendiente. Los reintentos programados a futuro
+     * ({@code available_at}) no cuentan: aún no tocaba publicarlos.
+     */
+    public PendingStats pendingStats() {
+        return jdbc.sql("SELECT count(*) AS total, min(created_at) AS oldest FROM outbox_events "
+                        + "WHERE published_at IS NULL AND (available_at IS NULL OR available_at <= now())")
+                .query((rs, rowNum) -> {
+                    OffsetDateTime oldest = rs.getObject("oldest", OffsetDateTime.class);
+                    return new PendingStats(rs.getLong("total"), oldest == null ? null : oldest.toInstant());
+                })
+                .single();
+    }
+
     /** Marca el evento como confirmado por el broker. */
     public void markPublished(UUID id, Instant at) {
         jdbc.sql("UPDATE outbox_events SET published_at = :at, last_error = NULL WHERE id = :id")

@@ -28,3 +28,17 @@ logging:
       console: ${QUEUELAB_LOG_FORMAT:}
   pattern:
     correlation: "[%X{correlationId:-}] [%X{jobId:-}] "
+
+management:
+  metrics:
+    tags:
+      # Distingue la serie de cada proceso cuando Prometheus recoge API y worker a la vez.
+      application: ${spring.application.name}
+
+queuelab:
+  metrics:
+    # Endpoint GET /metrics del worker (formato Prometheus). Solo local por defecto: no lleva autenticación;
+    # QUEUELAB_METRICS_ADDRESS=0.0.0.0 lo abre para un Prometheus en otro contenedor, dentro de una red interna.
+    enabled: ${QUEUELAB_METRICS_ENABLED:true}
+    address: ${QUEUELAB_METRICS_ADDRESS:127.0.0.1}
+    port: ${QUEUELAB_METRICS_PORT:8081}

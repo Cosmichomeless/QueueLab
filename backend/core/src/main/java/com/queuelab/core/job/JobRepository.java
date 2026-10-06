@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -226,6 +227,25 @@ public class JobRepository {
                 ) waiting""")
                 .param("cap", cap)
                 .query(Long.class).single();
+    }
+
+    /**
+     * Número de trabajos en cada estado (todos los estados aparecen, también con 0). Recorre el índice
+     * {@code jobs_status_created_at_idx} entero, así que su coste crece con la tabla: pensado para un
+     * muestreo periódico (métricas), no para una petición.
+     */
+    public Map<JobStatus, Long> countByStatus() {
+        Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+        for (JobStatus status : JobStatus.values()) {
+            counts.put(status, 0L);
+        }
+        jdbc.sql("SELECT status, count(*) AS total FROM jobs GROUP BY status")
+                .query((rs, rowNum) -> {
+                    counts.put(JobStatus.valueOf(rs.getString("status")), rs.getLong("total"));
+                    return null;
+                })
+                .list();
+        return counts;
     }
 
     /**
