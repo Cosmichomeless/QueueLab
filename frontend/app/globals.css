@@ -1,16 +1,29 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --muted: #5f6368;
-  --border: #d9dce1;
+  --background: #f6f7fb;
+  --surface: #ffffff;
+  --foreground: #14161f;
+  --muted: #646a7a;
+  --border: #e3e6ee;
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-soft: #eef0ff;
+  --on-accent: #ffffff;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgb(20 22 31 / 4%), 0 4px 16px rgb(20 22 31 / 5%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --muted: #9aa0a6;
-    --border: #2c2f34;
+    --background: #0d0e14;
+    --surface: #151720;
+    --foreground: #ececf3;
+    --muted: #9a9fb0;
+    --border: #272a37;
+    --accent: #818cf8;
+    --accent-strong: #a5b4fc;
+    --accent-soft: #1d2040;
+    --on-accent: #0d0e14;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 25%);
   }
 }
 
@@ -30,7 +43,8 @@ body {
   flex-direction: column;
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -39,6 +53,12 @@ body {
   box-sizing: border-box;
   padding: 0;
   margin: 0;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 a {
@@ -55,15 +75,29 @@ a {
 button,
 select {
   font: inherit;
-  padding: 6px 12px;
-  color: inherit;
-  background: transparent;
+  font-size: 0.9rem;
+  padding: 8px 14px;
+  color: var(--foreground);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
+  box-shadow: 0 1px 1px rgb(20 22 31 / 4%);
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+select {
+  padding-right: 8px;
 }
 
 button {
   cursor: pointer;
+  font-weight: 500;
 }
 
 button:disabled {
@@ -72,6 +106,6 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

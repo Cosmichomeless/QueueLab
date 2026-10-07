@@ -83,10 +83,12 @@ export function JobDetail({ id }: { id: string }) {
 
   return (
     <section aria-labelledby="job-title">
-      <p>
-        <Link href="/jobs">← Trabajos</Link>
-      </p>
-      <h1 id="job-title">Trabajo {shortId(id)}</h1>
+      <Link href="/jobs" className={styles.back}>
+        ← Trabajos
+      </Link>
+      <h1 id="job-title" className={styles.title}>
+        Trabajo {shortId(id)}
+      </h1>
 
       {state.phase === "loading" && (
         <p role="status" className={styles.message}>

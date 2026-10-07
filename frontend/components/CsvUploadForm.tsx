@@ -41,10 +41,11 @@ export function CsvUploadForm() {
   return (
     <section aria-labelledby="new-title">
       <h1 id="new-title">Nuevo trabajo CSV</h1>
-      <p className={styles.help}>
+      <p className={`${styles.help} ${styles.intro}`}>
         Sube un fichero CSV (UTF-8, con cabecera, hasta {formatBytes(MAX_CSV_BYTES)}). Se procesará en segundo plano y
         podrás seguir su estado.
       </p>
+      <div className={styles.card}>
       <form onSubmit={onSubmit} noValidate className={styles.form}>
         <label htmlFor="csv-file">Fichero CSV</label>
         <input
@@ -73,11 +74,12 @@ export function CsvUploadForm() {
           </p>
         )}
         <div>
-          <button type="submit" disabled={submitting || (touched && validationError !== null)}>
+          <button type="submit" className={styles.submit} disabled={submitting || (touched && validationError !== null)}>
             {submitting ? "Enviando…" : "Enviar"}
           </button>
         </div>
       </form>
+      </div>
     </section>
   );
 }

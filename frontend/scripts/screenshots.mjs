@@ -120,15 +120,15 @@ async function main() {
     await page.getByRole("heading", { name: "Fallo" }).waitFor();
     await page.screenshot({ path: path.join(OUT, "05-detalle-fallido.png") });
 
-    // 5. Lista (escritorio) y detalle en móvil (la tabla de la lista se recorta en 390 px: ver README, limitaciones).
+    // 5. Lista (escritorio) y lista en móvil (en 390 px las filas pasan a tarjetas).
     log("lista…");
     await page.goto(`${DASHBOARD}/jobs`);
     await page.locator("[data-status]").first().waitFor();
     await page.screenshot({ path: path.join(OUT, "01-trabajos.png") });
     const mobile = await browser.newContext({ viewport: { width: 390, height: 780 }, deviceScaleFactor: 2, isMobile: true, locale: "es-ES" });
     const phone = await mobile.newPage();
-    await phone.goto(`${DASHBOARD}/jobs/${completed[2]}`);
-    await phone.getByRole("heading", { name: "Resultado" }).waitFor();
+    await phone.goto(`${DASHBOARD}/jobs`);
+    await phone.locator("[data-status]").first().waitFor();
     await phone.screenshot({ path: path.join(OUT, "06-movil.png") });
   } finally {
     await browser.close();
