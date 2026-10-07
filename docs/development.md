@@ -88,4 +88,6 @@ Se regeneran con `./scripts/screenshots.sh`; el comando y sus requisitos están 
 - [`deployment/data-services-and-backups.md`](deployment/data-services-and-backups.md): migraciones de Flyway, copia y restauración (`scripts/backup.sh`, `scripts/restore.sh`), retención y durabilidad de colas y DLQ.
 - [`deployment/deploy-compose.md`](deployment/deploy-compose.md): levantar el stack público, health checks verificables, límites de memoria medidos y qué se probó y qué no.
 - [`deployment/smoke-and-rollback.md`](deployment/smoke-and-rollback.md): smoke test (`scripts/smoke.sh`), procedimiento de actualización y vuelta atrás (`scripts/rollback.sh`) con y sin migraciones.
+- [`architecture.md`](architecture.md): piezas, máquina de estados, garantías de entrega, escenarios de fallo y cómo reproducir el entorno.
+- [`releases/v1.0.0.md`](releases/v1.0.0.md): notas de la versión 1.0.0 (métricas, trade-offs, limitaciones y que no hay demo).
 - [`notas-originales.md`](notas-originales.md): notas de partida del proyecto.

@@ -6,12 +6,13 @@
 
 [![Backend CI](https://github.com/Cosmichomeless/QueueLab/actions/workflows/backend.yml/badge.svg)](https://github.com/Cosmichomeless/QueueLab/actions/workflows/backend.yml)
 [![Frontend CI](https://github.com/Cosmichomeless/QueueLab/actions/workflows/frontend.yml/badge.svg)](https://github.com/Cosmichomeless/QueueLab/actions/workflows/frontend.yml)
-![Estado](https://img.shields.io/badge/estado-pre--1.0-orange)
+![Versión](https://img.shields.io/badge/versi%C3%B3n-1.0.0-blue)
+![Demo](https://img.shields.io/badge/demo-no_hay-lightgrey)
 ![Stack](https://img.shields.io/badge/Java_25-Spring_Boot_4.1-6DB33F)
 ![Stack](https://img.shields.io/badge/Next.js_16-React_19-black)
 ![Licencia](https://img.shields.io/badge/licencia-MIT-blue)
 
-[Probarlo](#probarlo-en-un-comando) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Limitaciones](#limitaciones-conocidas) · [Documentación](#documentación)
+[Probarlo](#probarlo-en-un-comando) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Garantías](docs/architecture.md) · [Limitaciones](#limitaciones-conocidas) · [Documentación](#documentación)
 
 </div>
 
@@ -63,6 +64,8 @@ flowchart LR
 - **Worker (`backend/worker`):** sin HTTP de negocio. Reclama, ejecuta y escribe el estado (`QUEUED` → `RUNNING` → `COMPLETED` / `FAILED`, con `RETRYING` entre intentos); lo que no puede procesar acaba en la DLQ `queuelab.jobs.queued.dlq`.
 - **Datos:** PostgreSQL es la fuente de verdad y RabbitMQ solo transporta el `jobId`. Los ficheros de entrada y resultado viven en un volumen compartido por API y worker.
 
+La máquina de estados, las garantías y qué pasa ante cada fallo (con el test o la prueba que lo respalda) están en [`docs/architecture.md`](docs/architecture.md).
+
 ## Decisiones de diseño
 
 | Decisión | Por qué | Coste |
@@ -77,7 +80,7 @@ flowchart LR
 
 - **Sin autenticación ni autorización:** cualquiera que alcance la API puede crear y consultar trabajos (hallazgo H3 de la [revisión de seguridad](docs/security/upload-api-review.md), el riesgo principal).
 - **La cuota usa la IP del socket:** detrás de un proxy inverso todos los clientes comparten contador (H4). Si Redis no responde, no se limita.
-- **Ficheros sin cifrar y sin cuota total de almacenamiento** (H7); sin TLS en ningún punto.
+- **Ficheros sin cifrar y sin cuota total de almacenamiento** (H7); el Compose de desarrollo no usa TLS (la configuración pública sí, probada solo en local).
 - **Solo dos tipos de trabajo:** `noop` y `csv-import`. No hay otros.
 - **Rendimiento medido en una sola máquina** (Apple M4 Pro, todo en local), con un solo worker y una sola API, y con la cuota y la contrapresión desactivadas. No se ha medido con varios workers ni varias APIs.
 - **La tabla de la lista de trabajos se recorta en pantallas de 390 px:** la columna «Creado» no cabe.
@@ -96,12 +99,15 @@ El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/
 
 | Documento | Contenido |
 | --- | --- |
+| [`docs/architecture.md`](docs/architecture.md) | Piezas, máquina de estados, garantías de entrega, escenarios de fallo y cómo reproducir el entorno. |
 | [`docs/development.md`](docs/development.md) | Puesta en marcha con API, worker y dashboard fuera de contenedores, e índice de toda la documentación. |
 | [`docs/compose-stack.md`](docs/compose-stack.md) | Stack completo con Compose: servicios, puertos, volúmenes, réplicas del worker y qué está verificado. |
 | [`docs/performance/capacity.md`](docs/performance/capacity.md) | Límites del sistema, el coste de cada uno y cómo cambiarlos; resultados en [`benchmark-results.md`](docs/performance/benchmark-results.md). |
 | [`docs/observability/dashboard.md`](docs/observability/dashboard.md) | Prometheus y Grafana locales; métricas y trazas en la misma carpeta. |
 | [`docs/security/upload-api-review.md`](docs/security/upload-api-review.md) | Revisión de seguridad de la subida de ficheros y la API. |
 | [`docs/csv-workload.md`](docs/csv-workload.md) | Contrato del trabajo `csv-import`: formato, límites, estadísticas y fallos. |
+| [`docs/deployment/`](docs/deployment/) | Servicios y costes, secretos y TLS, datos y copias, Compose público, smoke y vuelta atrás. |
+| [`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md) | Notas de la versión 1.0.0: métricas, trade-offs y limitaciones. |
 
 ## Estructura
 
@@ -115,9 +121,10 @@ El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/
 ├── frontend/             Dashboard Next.js 16 (App Router) con vitest y Playwright
 ├── observability/        Configuración de Prometheus y dashboard de Grafana
 ├── docs/                 Documentación, benchmark y capturas (docs/screenshots)
-├── scripts/              Regeneración de las capturas
+├── scripts/              smoke, rollback, backup, restore y regeneración de las capturas
 ├── .github/workflows/    CI del backend y del dashboard
 ├── docker-compose.yml    Stack completo y perfil `observability`
+├── docker-compose.prod.yml  Configuración pública: secretos obligatorios, HTTPS (Caddy), límites de memoria
 └── .env.example          Variables de entorno de ejemplo
 ```
 
@@ -130,7 +137,7 @@ El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/
 - **Datos y copias, probados en local:** Flyway (de cero y actualización con datos), `scripts/backup.sh` y `scripts/restore.sh` con retención de 7 copias, y colas y DLQ que sobreviven a un reinicio de RabbitMQ. Las copias son manuales y no salen de la máquina: [`docs/deployment/data-services-and-backups.md`](docs/deployment/data-services-and-backups.md).
 - **«Despliegue» probado en local:** el Compose público con límites de memoria por servicio (≈ 2,4 GiB en total, medidos bajo carga), healthchecks en los 7 servicios y copia/restauración incluidas. Sigue sin haber entorno alojado: [`docs/deployment/deploy-compose.md`](docs/deployment/deploy-compose.md).
 - **Smoke y vuelta atrás, probados en local:** `scripts/smoke.sh` envía un CSV y verifica el resultado; `scripts/rollback.sh` vuelve a una imagen anterior sin tocar los datos (20 trabajos en cola terminaron tras la vuelta). Con una migración destructiva la salida es restaurar la copia previa: [`docs/deployment/smoke-and-rollback.md`](docs/deployment/smoke-and-rollback.md).
-- **Pendiente:** release v1.0.0 (issue #63).
+- **Release:** v1.0.0 documenta el estado, sin entorno alojado ([notas](docs/releases/v1.0.0.md)).
 
 ## Licencia
 
