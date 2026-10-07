@@ -63,7 +63,7 @@ services:
     build:
       context: ./backend
       dockerfile: api/Dockerfile
-    image: queuelab-api
+    image: queuelab-api:${QUEUELAB_TAG:-latest}
     environment:
       QUEUELAB_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-queuelab}
       QUEUELAB_DB_USER: ${POSTGRES_USER:-queuelab}
@@ -94,7 +94,7 @@ services:
     build:
       context: ./backend
       dockerfile: worker/Dockerfile
-    image: queuelab-worker
+    image: queuelab-worker:${QUEUELAB_TAG:-latest}
     environment:
       QUEUELAB_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-queuelab}
       QUEUELAB_DB_USER: ${POSTGRES_USER:-queuelab}
@@ -126,7 +126,7 @@ services:
   dashboard:
     build:
       context: ./frontend
-    image: queuelab-dashboard
+    image: queuelab-dashboard:${QUEUELAB_TAG:-latest}
     environment:
       # URL de la API tal como la ve el NAVEGADOR (no un nombre interno de la red de Compose).
       QUEUELAB_API_URL: http://localhost:${API_PORT:-8080}

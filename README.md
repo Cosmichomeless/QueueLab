@@ -129,7 +129,8 @@ El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/
 - **Configuración pública probada en local:** `docker-compose.prod.yml` obliga a inyectar los secretos, pone HTTPS y usuario/contraseña delante de todo. No hay certificado real ni entorno público: [`docs/deployment/secrets-tls-access.md`](docs/deployment/secrets-tls-access.md).
 - **Datos y copias, probados en local:** Flyway (de cero y actualización con datos), `scripts/backup.sh` y `scripts/restore.sh` con retención de 7 copias, y colas y DLQ que sobreviven a un reinicio de RabbitMQ. Las copias son manuales y no salen de la máquina: [`docs/deployment/data-services-and-backups.md`](docs/deployment/data-services-and-backups.md).
 - **«Despliegue» probado en local:** el Compose público con límites de memoria por servicio (≈ 2,4 GiB en total, medidos bajo carga), healthchecks en los 7 servicios y copia/restauración incluidas. Sigue sin haber entorno alojado: [`docs/deployment/deploy-compose.md`](docs/deployment/deploy-compose.md).
-- **Pendiente:** smoke checks y rollback, y release v1.0.0 (issues #62 y #63).
+- **Smoke y vuelta atrás, probados en local:** `scripts/smoke.sh` envía un CSV y verifica el resultado; `scripts/rollback.sh` vuelve a una imagen anterior sin tocar los datos (20 trabajos en cola terminaron tras la vuelta). Con una migración destructiva la salida es restaurar la copia previa: [`docs/deployment/smoke-and-rollback.md`](docs/deployment/smoke-and-rollback.md).
+- **Pendiente:** release v1.0.0 (issue #63).
 
 ## Licencia
 

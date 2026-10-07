@@ -105,6 +105,11 @@ Al probar el perfil `observability` con `docker-compose.prod.yml` (la #59 lo dej
    `GRAFANA_PASSWORD` no protegía el dashboard. El override lo desactiva: sin credenciales y con `admin/admin` → 401; con
    la contraseña generada → 200. Grafana sigue en `127.0.0.1:3300`, sin pasar por Caddy.
 
+## Después de desplegar
+
+El smoke test (`scripts/smoke.sh`) y la vuelta atrás a una imagen anterior (`scripts/rollback.sh`) están en
+[`smoke-and-rollback.md`](smoke-and-rollback.md).
+
 ## No verificado
 
 - **Un entorno alojado**: no existe. Tampoco Linux, ni `amd64`, ni un certificado real de Let's Encrypt.

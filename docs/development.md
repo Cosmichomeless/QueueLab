@@ -87,4 +87,5 @@ Se regeneran con `./scripts/screenshots.sh`; el comando y sus requisitos están 
 - [`deployment/secrets-tls-access.md`](deployment/secrets-tls-access.md): secretos fuera de Git, HTTPS con Caddy y política de acceso a la API (`docker-compose.prod.yml`).
 - [`deployment/data-services-and-backups.md`](deployment/data-services-and-backups.md): migraciones de Flyway, copia y restauración (`scripts/backup.sh`, `scripts/restore.sh`), retención y durabilidad de colas y DLQ.
 - [`deployment/deploy-compose.md`](deployment/deploy-compose.md): levantar el stack público, health checks verificables, límites de memoria medidos y qué se probó y qué no.
+- [`deployment/smoke-and-rollback.md`](deployment/smoke-and-rollback.md): smoke test (`scripts/smoke.sh`), procedimiento de actualización y vuelta atrás (`scripts/rollback.sh`) con y sin migraciones.
 - [`notas-originales.md`](notas-originales.md): notas de partida del proyecto.
