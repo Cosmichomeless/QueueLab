@@ -83,12 +83,14 @@ La API **no tiene autenticación ni autorización propias** (hallazgo H3 de la
 Con `docker compose -p queuelab-prod-test ... up -d --wait --build` (proyecto aparte, volúmenes propios, borrados al
 terminar), en macOS con Docker Desktop:
 
-- Los 7 servicios (PostgreSQL, RabbitMQ, Redis, API, worker, dashboard y Caddy) pasan a `healthy`.
+- Los 7 servicios (PostgreSQL, RabbitMQ, Redis, API, worker, dashboard y Caddy) arrancan; Caddy aún no tenía
+  healthcheck (se añadió en la #61) y se comprobó con `Up` y con las peticiones de abajo.
 - Sin `.env.production`, o con el de ejemplo sin rellenar, `docker compose config` falla.
 - La contraseña de desarrollo `queuelab` es **rechazada** por PostgreSQL y por RabbitMQ; la generada, aceptada.
 - Un CSV subido por `https://localhost:8443/api/v1/jobs/csv` con credenciales llega a `COMPLETED`.
 - Las imágenes y el historial de Git no contienen la contraseña generada.
 
-**No verificado:** certificado real y su renovación, Linux, el perfil `observability` con esta configuración (Grafana
-con contraseña obligatoria), rotación de contraseñas, límite de intentos de acceso y el comportamiento de la cuota
-por IP detrás del proxy.
+**No verificado:** certificado real y su renovación, Linux, rotación de contraseñas, límite de intentos de acceso y el
+comportamiento de la cuota por IP detrás del proxy. El perfil `observability` con esta configuración se probó después,
+en la [#61](https://github.com/Cosmichomeless/QueueLab/issues/61), y destapó dos defectos que se corrigieron allí
+(Prometheus sin objetivos y Grafana con acceso anónimo): ver [`deploy-compose.md`](deploy-compose.md).

@@ -88,11 +88,11 @@ comprobado en la consola**; las cuotas cambian y deben revisarse antes de depend
 
 ## Dimensionado
 
-Sin consumo medido: el stack de Compose no define límites de memoria y no se han registrado datos de `docker stats`.
-Lo único fijado en el repositorio es que las JVM de API y worker usan `-XX:MaxRAMPercentage=75`
-([`containers-backend.md`](../containers-backend.md)), así que **cada JVM tomará hasta el 75 % de la memoria que vea**
-si no se limita el contenedor. Antes de desplegar en 12 GB habría que poner límites por servicio y medir. Es trabajo de
-[#61](https://github.com/Cosmichomeless/QueueLab/issues/61).
+Medido en la [#61](https://github.com/Cosmichomeless/QueueLab/issues/61), con una máquina de 7,65 GiB (macOS, arm64):
+`docker-compose.prod.yml` fija un límite por servicio cuya suma es **≈ 2,4 GiB** (picos medidos bajo carga entre 8 y
+271 MiB por servicio). Cabe con holgura en 8 GB (Codespaces) y en 12 GB (Oracle), **pero no se ha probado en ninguno de
+los dos**. Tablas, método y salvedades en [`deploy-compose.md`](deploy-compose.md). Sin límite, cada JVM tomaría hasta el
+75 % de la memoria que viera (`-XX:MaxRAMPercentage=75`, [`containers-backend.md`](../containers-backend.md)).
 
 Para la capacidad, el rendimiento medido (8 hilos ≈ 40 trabajos/s en un M4 Pro) **no es extrapolable** a 2 OCPU
 ARM: ver [`performance/capacity.md`](../performance/capacity.md).
@@ -115,15 +115,15 @@ No se ha evaluado cada proveedor uno a uno; el criterio de descarte es el diseñ
   acceso **antes**.
 - [#60](https://github.com/Cosmichomeless/QueueLab/issues/60) (datos y migraciones): los datos viven en volúmenes de
   Compose; faltan copia y restauración, que habría que documentar y probar.
-- [#61](https://github.com/Cosmichomeless/QueueLab/issues/61) a [#63](https://github.com/Cosmichomeless/QueueLab/issues/63):
-  dependen de que exista un entorno. Con esta decisión, el «despliegue» es el Compose; un entorno público real
-  requeriría crear la VM, que **necesita una decisión y la cuenta del propietario**.
+- [#61](https://github.com/Cosmichomeless/QueueLab/issues/61) (hecha) a [#63](https://github.com/Cosmichomeless/QueueLab/issues/63):
+  con esta decisión, el «despliegue» es el Compose probado en local ([`deploy-compose.md`](deploy-compose.md)); un
+  entorno público real requeriría crear la VM, que **necesita una decisión y la cuenta del propietario**.
 
 ## Resumen de lo verificado
 
 - **Verificado en este repositorio:** la topología y los volúmenes (`docker-compose.yml`, `compose-stack.md`), el
-  `MaxRAMPercentage` de las imágenes y que no hay límites de memoria definidos.
+  `MaxRAMPercentage` de las imágenes y, con la #61, el consumo de memoria bajo carga y los límites por servicio.
 - **Consultado, no comprobado en cuenta real:** las cuotas de Codespaces y de Oracle Always Free y la política de
   reclamación de instancias.
-- **No verificado:** ejecución en Linux o `arm64`, consumo real de memoria, tiempo de construcción en un codespace de
-  2 núcleos y el alta en Oracle.
+- **No verificado:** ejecución en Linux o en `amd64`, el consumo en una máquina de 8 o 12 GB, tiempo de construcción en
+  un codespace de 2 núcleos y el alta en Oracle.

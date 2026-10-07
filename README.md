@@ -128,7 +128,8 @@ El seguimiento está en las [issues](https://github.com/Cosmichomeless/QueueLab/
 - **Decidido:** presupuesto de 0 €, sin entorno permanente; el stack es el propio Compose, probable en Codespaces. Servicios, costes y límites en [`docs/deployment/services-and-costs.md`](docs/deployment/services-and-costs.md).
 - **Configuración pública probada en local:** `docker-compose.prod.yml` obliga a inyectar los secretos, pone HTTPS y usuario/contraseña delante de todo. No hay certificado real ni entorno público: [`docs/deployment/secrets-tls-access.md`](docs/deployment/secrets-tls-access.md).
 - **Datos y copias, probados en local:** Flyway (de cero y actualización con datos), `scripts/backup.sh` y `scripts/restore.sh` con retención de 7 copias, y colas y DLQ que sobreviven a un reinicio de RabbitMQ. Las copias son manuales y no salen de la máquina: [`docs/deployment/data-services-and-backups.md`](docs/deployment/data-services-and-backups.md).
-- **Pendiente:** despliegue, smoke checks y release v1.0.0 (issues #61–#63).
+- **«Despliegue» probado en local:** el Compose público con límites de memoria por servicio (≈ 2,4 GiB en total, medidos bajo carga), healthchecks en los 7 servicios y copia/restauración incluidas. Sigue sin haber entorno alojado: [`docs/deployment/deploy-compose.md`](docs/deployment/deploy-compose.md).
+- **Pendiente:** smoke checks y rollback, y release v1.0.0 (issues #62 y #63).
 
 ## Licencia
 

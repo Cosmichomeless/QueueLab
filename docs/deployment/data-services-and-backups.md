@@ -144,7 +144,9 @@ issue).
 - Un trabajo `QUEUED` cuyo evento se perdió por otra vía distinta de una restauración (p. ej. editando la base de datos
   a mano) no se vuelve a publicar solo: la migración `V5` solo cubre el momento de migrar. Durante las pruebas, un trabajo
   insertado a mano sin evento se quedó `QUEUED` indefinidamente.
-- `backup.sh` y `restore.sh` **no se han probado con `docker-compose.prod.yml`** (se verificarán al desplegar en
-  [#61](https://github.com/Cosmichomeless/QueueLab/issues/61)), ni en Linux ni con el perfil `observability`.
+- `backup.sh` y `restore.sh` se probaron con `docker-compose.prod.yml` en la
+  [#61](https://github.com/Cosmichomeless/QueueLab/issues/61) ([`deploy-compose.md`](deploy-compose.md): copia, `down -v`
+  y restauración con el mismo SHA-256 de un resultado), pero **no en Linux** ni con el perfil `observability`. Tras
+  `restore.sh` hay que ejecutar `docker compose up -d --wait`: el script no arranca Caddy ni el dashboard.
 - No se probó una copia con tráfico en curso: el script la evita parando API y worker, y por eso no es una copia en
   caliente.

@@ -7,20 +7,28 @@
 #   - PostgreSQL, RabbitMQ, Redis, la API y el dashboard dejan de publicar puertos en el host.
 #   - Un único punto de entrada, Caddy, termina HTTPS y exige usuario y contraseña (Basic) antes de llegar a nada.
 #   - Dashboard y API se sirven bajo el MISMO origen (https://<dominio>/ y https://<dominio>/api/v1/...).
+#   - Cada servicio con estado o con JVM tiene un límite de memoria (`mem_limit`), medido bajo carga: ver
+#     docs/deployment/deploy-compose.md. Las JVM usan el 75 % del límite como heap (ver docs/containers-backend.md).
 # Los puertos de Prometheus y Grafana (perfil `observability`) siguen en 127.0.0.1 y no pasan por Caddy.
 services:
   postgres:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env.production}
     ports: !reset []
+    mem_limit: 512m
 
   rabbitmq:
     environment:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD en .env.production}
     ports: !reset []
+    mem_limit: 512m
+    volumes:
+      # Umbral de memoria absoluto por debajo del límite del contenedor (ver el fichero).
+      - ./deploy/rabbitmq.conf:/etc/rabbitmq/conf.d/20-queuelab.conf:ro
 
   redis:
     ports: !reset []
+    mem_limit: 64m
 
   api:
     environment:
@@ -29,21 +37,32 @@ services:
       # Mismo origen que el dashboard: el navegador no hace peticiones entre orígenes y CORS no se usa.
       QUEUELAB_CORS_ALLOWED_ORIGINS: ${QUEUELAB_PUBLIC_URL:?defina QUEUELAB_PUBLIC_URL en .env.production}
     ports: !reset []
+    mem_limit: 512m
 
   worker:
     environment:
       QUEUELAB_DB_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env.production}
       QUEUELAB_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD en .env.production}
+    mem_limit: 512m
 
   dashboard:
     environment:
       # URL de la API tal como la ve el navegador: el mismo origen público (Caddy reparte /api/ hacia la API).
       QUEUELAB_API_URL: ${QUEUELAB_PUBLIC_URL:?defina QUEUELAB_PUBLIC_URL en .env.production}
     ports: !reset []
+    mem_limit: 256m
+
+  # Perfil `observability`: Prometheus recoge las métricas por el nombre de los servicios (la API y el worker ya no
+  # publican puertos en el host, así que la configuración «del host» no los alcanzaría).
+  prometheus:
+    volumes:
+      - ${PROMETHEUS_CONFIG:-./observability/prometheus/prometheus.compose.yml}:/etc/prometheus/prometheus.yml:ro
 
   grafana:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina GRAFANA_PASSWORD en .env.production}
+      # El acceso anónimo de lectura es solo para el modo local: aquí se exige iniciar sesión.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
 
   # Único servicio con puertos en el host. Por defecto escucha SOLO en 127.0.0.1; poner QUEUELAB_BIND=0.0.0.0 es la
   # decisión consciente de abrirlo a la red (ver la política de acceso en el documento).
@@ -65,6 +84,14 @@ services:
         condition: service_healthy
       dashboard:
         condition: service_healthy
+    mem_limit: 64m
+    # La API de administración de Caddy solo escucha dentro del contenedor (127.0.0.1:2019): no se publica.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
     restart: unless-stopped
 
 volumes:
